@@ -1,0 +1,1974 @@
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
+import os from 'os';
+import { execFileSync } from 'child_process';
+import {
+  db,
+  hashPassword,
+  generateToken,
+  generateRefNumber,
+  createSessionToken,
+  verifySessionToken,
+  DESIGNATED_ADMIN_EMAILS,
+  UPLOADS_DIR,
+  ARTWORK_DIR,
+  AUDIO_DIR,
+  DOCUMENTS_DIR,
+} from './db.ts';
+import type {
+  User,
+  Release,
+  ReleaseStatus,
+  ReleaseDocumentItem,
+  CatalogueEntry,
+} from './db.ts';
+import { sendNotification, sendAdminReleaseEmail } from './mailer.ts';
+import { requestEmailOtp, verifyEmailOtp, verifyAccessToken, isSupabaseConfigured } from './otp.ts';
+import {
+  remotePersistenceConfigured,
+  remoteUploadFile,
+  remoteSignedUrl,
+  encodeRemoteAssetPath,
+  decodeRemoteAssetPath,
+  remoteObjectPathFromStoredName,
+  remoteCreateAuthUser,
+  remoteFindAuthUserByEmail,
+  remoteUpdateAuthUser,
+  remoteCheckDatabase,
+  remoteCheckStorage,
+  remoteCheckAuth,
+} from './remote.ts';
+
+export const apiRouter = express.Router();
+
+// Best-effort application-side OTP throttling. Supabase Auth also enforces its own
+// per-IP and per-user limits; these limits add a local defense layer.
+const otpRequestByKey = new Map<string, number>();
+const otpVerifyAttempts = new Map<string, { count: number; resetAt: number }>();
+const OTP_REQUEST_COOLDOWN_MS = 60_000;
+const OTP_VERIFY_WINDOW_MS = 10 * 60_000;
+const OTP_MAX_VERIFY_ATTEMPTS = 8;
+
+function normalizeAuthEmail(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function clientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  return req.ip || 'unknown';
+}
+
+function setSessionCookie(res: Response, token: string, maxAgeMs = 24 * 60 * 60 * 1000) {
+  res.cookie('midama_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE),
+    sameSite: 'lax',
+    path: '/',
+    maxAge: maxAgeMs,
+  });
+}
+
+function clearSessionCookie(res: Response) {
+  res.clearCookie('midama_token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE),
+    sameSite: 'lax',
+    path: '/',
+  });
+}
+
+// Multer storage for artwork
+const artworkStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, ARTWORK_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `art_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+// Multer storage for audio (MP3 only)
+const audioStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, AUDIO_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `track_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+// Multer storage for supporting documents (PDF, DOCX, TXT)
+const documentStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, DOCUMENTS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+const uploadDocument = multer({
+  storage: documentStorage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.pdf', '.doc', '.docx', '.txt', '.csv', '.rtf'];
+    if (allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid document format. Only PDF, DOC, DOCX, TXT, CSV files are accepted.'));
+    }
+  }
+});
+
+const uploadArtwork = multer({
+  storage: artworkStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/jpg'];
+    if (allowed.includes(file.mimetype.toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid artwork format. Only JPG/JPEG and PNG image files are accepted.'));
+    }
+  }
+});
+
+const uploadAudio = multer({
+  storage: audioStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB per track
+  fileFilter: (_req, file, cb) => {
+    const isMp3Mime = file.mimetype === 'audio/mpeg' || file.mimetype === 'audio/mp3' || file.mimetype === 'audio/x-mp3';
+    const isMp3Ext = file.originalname.toLowerCase().endsWith('.mp3');
+    if (isMp3Mime || isMp3Ext) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid audio format. MP3 audio master files ONLY (.mp3). WAV, FLAC, M4A are rejected.'));
+    }
+  }
+});
+
+// Helper auth middleware
+interface AuthenticatedRequest extends Request {
+  user?: User;
+}
+
+export function getAuthTokenFromRequest(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.split(' ')[1];
+  }
+  if (req.query && typeof req.query.token === 'string' && req.query.token.length > 20) {
+    return req.query.token;
+  }
+  const cookies = req.headers.cookie;
+  if (cookies) {
+    const match = cookies.match(/(?:^|;\s*)midama_token=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const token = getAuthTokenFromRequest(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+  }
+
+  const verified = verifySessionToken(token);
+  if (!verified) {
+    return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' });
+  }
+  const user = db.findUserById(verified.userId);
+
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' });
+  }
+
+  if (user.status === 'disabled') {
+    return res.status(403).json({ error: 'Your account has been deactivated by the administrator. Please contact midnightamapiano@yahoo.com.' });
+  }
+
+  req.user = user;
+  next();
+}
+
+function adminOnly(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const isDesignatedAdmin = !!req.user && req.user.email.toLowerCase() === 'remoabetswemolefi@gmail.com';
+  if (!req.user || !isDesignatedAdmin) {
+    return res.status(403).json({ error: 'Access denied. Administrative privilege required.' });
+  }
+  next();
+}
+
+// ----------------------------------------------------
+// AUTH ROUTES
+// ----------------------------------------------------
+
+apiRouter.get('/auth/config', (_req: Request, res: Response) => {
+  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
+  return res.json({ supabaseUrl, supabaseAnonKey });
+});
+
+apiRouter.post('/auth/request-otp', async (req: Request, res: Response) => {
+  const email = normalizeAuthEmail(req.body?.email);
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+
+  const key = `${clientIp(req)}:${email}`;
+  const now = Date.now();
+  const last = otpRequestByKey.get(key) || 0;
+  const elapsed = now - last;
+
+  console.log(`[AUTH OTP DIAGNOSTIC] Request for ${email} from ${clientIp(req)} | Elapsed: ${elapsed}ms | Threshold: ${OTP_REQUEST_COOLDOWN_MS}ms`);
+
+  if (elapsed < OTP_REQUEST_COOLDOWN_MS) {
+    const remainingSecs = Math.max(1, Math.ceil((OTP_REQUEST_COOLDOWN_MS - elapsed) / 1000));
+    console.warn(`[AUTH OTP DIAGNOSTIC] Cooldown active for ${email}: ${remainingSecs}s remaining`);
+    return res.status(429).json({ error: `Please wait ${remainingSecs} seconds before requesting another login code.` });
+  }
+  otpRequestByKey.set(key, now);
+
+  // If the user is already a registered client in Mid-Ama, ensure their Supabase Auth user exists
+  // so that signInWithOtp with shouldCreateUser: false will succeed.
+  if (remotePersistenceConfigured) {
+    const existingClient = db.findUserByEmail(email);
+    if (existingClient && !existingClient.authUserId) {
+      try {
+        const authUser =
+          remoteFindAuthUserByEmail(email) ||
+          remoteCreateAuthUser(email, crypto.randomUUID(), {
+            role: existingClient.role,
+            name: existingClient.name,
+            midama_user_id: existingClient.id,
+          });
+        db.updateUser(existingClient.id, { authUserId: authUser.id });
+      } catch (syncErr: any) {
+        console.warn('[AUTH OTP] Could not sync user with Supabase Auth:', syncErr?.message || syncErr);
+      }
+    }
+  }
+
+  try {
+    // When Supabase is configured, send the OTP code via Supabase Auth.
+    // shouldCreateUser: false ensures unknown users are NEVER created.
+    if (isSupabaseConfigured()) {
+      console.log(`[AUTH OTP DIAGNOSTIC] Calling Supabase signInWithOtp for ${email}`);
+      await requestEmailOtp(email);
+      console.log(`[AUTH OTP DIAGNOSTIC] Supabase signInWithOtp dispatched successfully for ${email}`);
+    }
+  } catch (error: any) {
+    console.warn('[AUTH OTP DIAGNOSTIC] Supabase signInWithOtp returned:', error?.message || error);
+    if (error?.message && error.message.toLowerCase().includes('security purposes')) {
+      return res.status(429).json({ error: error.message });
+    }
+    // Respect security best practice: do not disclose whether an unauthenticated address exists.
+  }
+
+  return res.json({
+    message: 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.'
+  });
+});
+
+apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
+  const email = normalizeAuthEmail(req.body?.email);
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+  const accessToken = typeof req.body?.accessToken === 'string' ? req.body.accessToken.trim() : '';
+
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+
+  const key = `${clientIp(req)}:${email}`;
+  const now = Date.now();
+  const existing = otpVerifyAttempts.get(key);
+  if (!existing || existing.resetAt <= now) {
+    otpVerifyAttempts.set(key, { count: 0, resetAt: now + OTP_VERIFY_WINDOW_MS });
+  }
+  const state = otpVerifyAttempts.get(key)!;
+  if (state.count >= OTP_MAX_VERIFY_ATTEMPTS) {
+    return res.status(429).json({ error: 'Too many incorrect code attempts. Please request a new code and try again later.' });
+  }
+
+  let verifiedSupabaseUser: { id?: string; email?: string } | null = null;
+
+  // 1. Verify via Supabase access token if provided from client-side verifyOtp
+  if (accessToken) {
+    verifiedSupabaseUser = await verifyAccessToken(accessToken);
+  }
+
+  // 2. If no valid access token, verify OTP code with Supabase
+  if (!verifiedSupabaseUser) {
+    if (!code || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the 6-digit code sent to your email.' });
+    }
+    try {
+      if (isSupabaseConfigured()) {
+        console.log(`[AUTH OTP DIAGNOSTIC] Verifying OTP with Supabase for ${email}`);
+        const verified = await verifyEmailOtp(email, code);
+        verifiedSupabaseUser = verified?.user || { email };
+        console.log(`[AUTH OTP DIAGNOSTIC] Supabase OTP verification succeeded for ${email}`);
+      } else {
+        // Fallback for local testing when Supabase is not configured
+        verifiedSupabaseUser = { email };
+      }
+    } catch (error: any) {
+      state.count += 1;
+      console.warn('[AUTH OTP DIAGNOSTIC] Verification failed:', error?.message || error);
+      return res.status(401).json({ error: 'The code is invalid or has expired. Please request a new code.' });
+    }
+  }
+
+  const verifiedEmail = normalizeAuthEmail(verifiedSupabaseUser?.email || email);
+  const user = db.findUserByEmail(verifiedEmail);
+  if (!user || user.status === 'disabled') {
+    clearSessionCookie(res);
+    return res.status(403).json({ error: 'This email is not authorized to access Mid-Ama Promo.' });
+  }
+
+  // Enforce server-side role check: only designated admin email is granted admin privileges
+  const isDesignatedAdmin = verifiedEmail === 'remoabetswemolefi@gmail.com';
+  const role = isDesignatedAdmin ? 'admin' : 'client';
+
+  // Bind the verified Supabase identity to the existing Mid-Ama user record.
+  if (verifiedSupabaseUser?.id && verifiedSupabaseUser.id !== user.authUserId) {
+    db.updateUser(user.id, { authUserId: verifiedSupabaseUser.id, role });
+  } else if (user.role !== role) {
+    db.updateUser(user.id, { role });
+  }
+
+  state.count = 0;
+  state.resetAt = now + OTP_VERIFY_WINDOW_MS;
+  const token = createSessionToken(user.id);
+  setSessionCookie(res, token);
+  const { passwordHash: _passwordHash, ...safeUser } = { ...user, role, authUserId: verifiedSupabaseUser?.id || user.authUserId };
+
+  return res.json({ token, user: safeUser });
+});
+
+apiRouter.post('/auth/logout', (_req: Request, res: Response) => {
+  clearSessionCookie(res);
+  return res.json({ message: 'Signed out.' });
+});
+
+apiRouter.get('/auth/me', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  const { passwordHash, ...safeUser } = req.user;
+  res.json({ user: safeUser });
+});
+
+// Password creation/reset through a bare email is intentionally disabled.
+// Authentication is email OTP based; this closes any previous password takeover path.
+apiRouter.post('/auth/set-password', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Password login has been retired. Use the email one-time login code instead.' });
+});
+
+apiRouter.post('/auth/reset-password-direct', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Password login has been retired. Use the email one-time login code instead.' });
+});
+
+apiRouter.post('/auth/register-invite', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Password registration has been retired. Sign in directly using your email one-time code.' });
+});
+
+apiRouter.post('/auth/forgot-password', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Password recovery is no longer used. Sign in with an email one-time login code.' });
+});
+
+apiRouter.post('/auth/reset-password', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Password recovery is no longer used. Sign in with an email one-time login code.' });
+});
+
+// ----------------------------------------------------
+// FILE UPLOAD ROUTES (Artwork & MP3 Audio)
+// ----------------------------------------------------
+
+apiRouter.post('/upload/artwork', authMiddleware, uploadArtwork.single('artwork'), (req: AuthenticatedRequest, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No artwork image file uploaded.' });
+  }
+
+  const { width, height } = req.body;
+  const parsedWidth = width ? parseInt(width, 10) : undefined;
+  const parsedHeight = height ? parseInt(height, 10) : undefined;
+
+  if (parsedWidth && parsedHeight) {
+    if (parsedWidth !== parsedHeight) {
+      // Remove invalid file
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+      return res.status(400).json({ error: `Artwork must be a 1:1 square (received ${parsedWidth}×${parsedHeight}px).` });
+    }
+    if (parsedWidth < 1000 || parsedWidth > 2500) {
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+      return res.status(400).json({ error: `Artwork dimensions must be between 1000×1000 and 2500×2500 pixels (received ${parsedWidth}×${parsedHeight}px).` });
+    }
+  }
+
+  let storedFilename = req.file.filename;
+  let fileUrl = `/uploads/artwork/${req.file.filename}`;
+  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/artwork/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  res.json({
+    success: true,
+    message: 'Cover artwork uploaded successfully',
+    filename: req.file.originalname,
+    storedFilename,
+    fileUrl,
+    size: req.file.size,
+    dimensions: parsedWidth && parsedHeight ? { width: parsedWidth, height: parsedHeight } : undefined
+  });
+});
+
+apiRouter.post('/upload/audio', authMiddleware, uploadAudio.single('audio'), (req: AuthenticatedRequest, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No audio file uploaded.' });
+  }
+
+  const isMp3Ext = req.file.originalname.toLowerCase().endsWith('.mp3');
+  const isMp3Mime = req.file.mimetype.includes('audio/mpeg') || req.file.mimetype.includes('audio/mp3') || req.file.mimetype.includes('audio/x-mp3');
+  
+  if (!isMp3Ext && !isMp3Mime) {
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    return res.status(400).json({ error: 'Invalid file format. Master audio must be in MP3 format ONLY (.mp3).' });
+  }
+
+  let storedFilename = req.file.filename;
+  let fileUrl = `/uploads/audio/${req.file.filename}`;
+  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'audio/mpeg'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  res.json({
+    success: true,
+    message: 'MP3 audio master uploaded successfully',
+    filename: req.file.originalname,
+    storedFilename,
+    fileUrl,
+    fileSize: req.file.size,
+  });
+});
+
+// Supporting Document Upload (PDF, DOCX, TXT, CSV)
+apiRouter.post('/upload/document', authMiddleware, uploadDocument.single('document'), (req: AuthenticatedRequest, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No document file uploaded.' });
+  }
+
+  let storedFilename = req.file.filename;
+  let fileUrl = `/uploads/documents/${req.file.filename}`;
+  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/documents/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  res.json({
+    success: true,
+    message: 'Supporting document uploaded successfully',
+    filename: req.file.originalname,
+    storedFilename,
+    fileUrl,
+    fileSize: req.file.size,
+  });
+});
+
+// ----------------------------------------------------
+// SECURE SIGNED ASSET DOWNLOAD SYSTEM
+// ----------------------------------------------------
+
+const DOWNLOAD_SECRET = process.env.DOWNLOAD_SECRET || 'mid_ama_promo_secure_signing_salt_2026_x89q';
+
+export interface DownloadTicketPayload {
+  releaseId: string;
+  assetType: 'artwork' | 'track' | 'document';
+  assetId?: string;
+  userId: string;
+  userRole: 'admin' | 'client';
+  filename: string;
+  filePath: string;
+  contentType: string;
+  expiresAt: number; // Unix timestamp in ms
+}
+
+export function generateSignedDownloadToken(payload: DownloadTicketPayload): string {
+  const jsonStr = JSON.stringify(payload);
+  const data = Buffer.from(jsonStr, 'utf-8').toString('base64url');
+  const signature = crypto.createHmac('sha256', DOWNLOAD_SECRET).update(data).digest('base64url');
+  return `${data}.${signature}`;
+}
+
+export function verifySignedDownloadToken(token: string): { valid: boolean; payload?: DownloadTicketPayload; error?: string; expired?: boolean } {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) {
+      return { valid: false, error: 'Malformed download token.' };
+    }
+    const [data, signature] = parts;
+    const expectedSig = crypto.createHmac('sha256', DOWNLOAD_SECRET).update(data).digest('base64url');
+
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+      return { valid: false, error: 'Invalid or tampered download token signature.' };
+    }
+
+    const payload: DownloadTicketPayload = JSON.parse(Buffer.from(data, 'base64url').toString('utf-8'));
+    if (Date.now() > payload.expiresAt) {
+      return { valid: false, expired: true, error: 'This download link has expired. Please click Download again to generate a fresh link.' };
+    }
+
+    return { valid: true, payload };
+  } catch (err: any) {
+    return { valid: false, error: 'Failed to verify download token.' };
+  }
+}
+
+// Generates an official Mid-Ama Promo QC Verification & Metadata Cue Sheet document
+export function generateReleaseQcDocument(release: Release): string {
+  if (!fs.existsSync(DOCUMENTS_DIR)) {
+    fs.mkdirSync(DOCUMENTS_DIR, { recursive: true });
+  }
+
+  const docFilename = `${release.refNumber}-QC-Metadata-Sheet.txt`;
+  const docPath = path.join(DOCUMENTS_DIR, docFilename);
+
+  const content = `================================================================================
+MID-AMA PROMO™ - OFFICIAL DISTRIBUTION QC & METADATA CUE SHEET
+Worldwide Digital Music Distribution & Quality Control Administration
+Portal: Mid-Ama Promo™ | Contact: midnightamapiano@yahoo.com
+================================================================================
+
+RELEASE IDENTIFICATION:
+--------------------------------------------------------------------------------
+Catalogue Reference:    ${release.refNumber}
+Release Title:          ${release.title}
+Release Type:           ${release.releaseType}
+Primary Artist(s):      ${release.primaryArtists.join(', ')}
+Featured Artist(s):     ${release.featuredArtists?.length ? release.featuredArtists.join(', ') : 'None'}
+Main Genre:             ${release.genre}
+Sub-Genre:              ${release.subGenre || 'Amapiano / Private School Piano'}
+Primary Language:       ${release.language || 'Zulu / English / Multilingual'}
+Target Release Date:    ${release.targetReleaseDate}
+Submission Timestamp:   ${release.submittedAt}
+Current Status:         ${release.status.toUpperCase()}
+${release.approvalDate ? `Approval Timestamp:     ${release.approvalDate}` : ''}
+
+RECORD LABEL & RIGHTS OWNER DETAILS:
+--------------------------------------------------------------------------------
+Artist / Record Label:  ${release.artistLabelName}
+Client Account Email:   ${release.userEmail}
+C-Line (Copyright):     ${release.cLine || `${new Date().getFullYear()} Mid-Ama Promo`}
+P-Line (Phonogram):     ${release.pLine || '℗ ' + new Date().getFullYear()}
+Composer(s):            ${release.composers?.length ? release.composers.join(', ') : release.primaryArtists.join(', ')}
+Producer(s):            ${release.producers?.length ? release.producers.join(', ') : release.primaryArtists.join(', ')}
+
+TECHNICAL QUALITY CONTROL AUDIT:
+--------------------------------------------------------------------------------
+Master Audio Standard:  320kbps Constant Bitrate MP3 (Verified)
+Artwork Standard:       Square 1:1 Aspect Ratio JPG/PNG (Verified)
+Artwork Dimensions:     ${release.artworkDimensions ? `${release.artworkDimensions.width}×${release.artworkDimensions.height}px` : 'Square compliant'}
+Artwork Source File:    ${release.artworkFilename}
+Track Total Count:      ${release.tracks.length} track(s)
+
+SUBMITTED MASTER TRACKLIST & ISRCs:
+--------------------------------------------------------------------------------
+${release.tracks.map(t => `Track #${t.trackNumber}
+  Title:      ${t.title}
+  Version:    ${t.version || 'Original Mix'}
+  Filename:   ${t.filename}
+  File Size:  ${(t.fileSize / (1024 * 1024)).toFixed(2)} MB
+  Explicit:   ${t.explicit ? 'YES (Parental Advisory)' : 'NO (Clean / All Audiences)'}
+  ISRC:       ${t.isrc || 'Pending DSP Distribution Code'}
+`).join('\n')}
+
+ADMINISTRATIVE NOTES & REVIEW:
+--------------------------------------------------------------------------------
+${release.adminNotes ? release.adminNotes : 'Quality control check verified by Mid-Ama Promo™ Administration.'}
+${release.denialReason ? `Denial Reason: ${release.denialReason}` : ''}
+${release.clientNotes ? `Client Notes: "${release.clientNotes}"` : ''}
+
+STATUS AUDIT TRAIL:
+--------------------------------------------------------------------------------
+${(release.statusHistory || []).map(h => `[${h.timestamp}] Status changed to ${h.status} by ${h.updatedBy}${h.note ? ` - Note: "${h.note}"` : ''}`).join('\n')}
+
+================================================================================
+CONFIDENTIAL NOTICE: This document contains proprietary metadata submitted to MID-AMA PROMO™.
+Artists retain 100% master ownership and recording copyrights.
+================================================================================
+`;
+
+  fs.writeFileSync(docPath, content, 'utf-8');
+  return docPath;
+}
+
+// Endpoint 1: Generate a secure temporary signed download URL (For authenticated Admin and Release Owner)
+apiRouter.post('/releases/:id/download-ticket', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const releaseId = req.params.id;
+  const { assetType, trackId, documentId } = req.body;
+  const user = req.user!;
+
+  if (!assetType || !['artwork', 'track', 'audio', 'document'].includes(assetType)) {
+    return res.status(400).json({ error: 'Valid assetType (artwork, track, document) is required.' });
+  }
+
+  const release = db.findReleaseById(releaseId);
+  if (!release) {
+    return res.status(404).json({ error: 'Release not found.' });
+  }
+
+  // Strict RBAC: Admin has access to all submitted releases. Customers ONLY to their own releases.
+  if (user.role !== 'admin' && release.userId !== user.id) {
+    return res.status(403).json({ error: 'Access denied. You can only download assets from your own releases.' });
+  }
+
+  let filePath = '';
+  let filename = '';
+  let contentType = 'application/octet-stream';
+  const normAssetType = assetType === 'audio' ? 'track' : assetType;
+
+  if (normAssetType === 'artwork') {
+    const storedName = release.storedArtworkFilename || path.basename(release.artworkUrl);
+    filePath = path.join(ARTWORK_DIR, storedName);
+    filename = release.artworkFilename || `${release.refNumber}-artwork${path.extname(storedName) || '.jpg'}`;
+    contentType = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+  } else if (normAssetType === 'track') {
+    if (!trackId) {
+      const track = release.tracks[0];
+      if (!track) return res.status(404).json({ error: 'No audio tracks found in this release.' });
+      const storedName = track.storedFilename || path.basename(track.fileUrl);
+      filePath = path.join(AUDIO_DIR, storedName);
+      filename = track.filename || `${release.refNumber}-track-1.mp3`;
+      contentType = 'audio/mpeg';
+    } else {
+      const track = release.tracks.find(t => t.id === trackId);
+      if (!track) return res.status(404).json({ error: 'Audio track not found in this release.' });
+      const storedName = track.storedFilename || path.basename(track.fileUrl);
+      filePath = path.join(AUDIO_DIR, storedName);
+      filename = track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`;
+      contentType = 'audio/mpeg';
+    }
+  } else if (normAssetType === 'document') {
+    if (documentId && release.documents && release.documents.length > 0) {
+      const doc = release.documents.find(d => d.id === documentId);
+      if (!doc) return res.status(404).json({ error: 'Document not found in this release.' });
+      filePath = path.join(DOCUMENTS_DIR, doc.storedFilename || path.basename(doc.fileUrl));
+      filename = doc.filename;
+      contentType = 'application/pdf';
+    } else if (release.documents && release.documents.length > 0 && !documentId) {
+      const doc = release.documents[0];
+      filePath = path.join(DOCUMENTS_DIR, doc.storedFilename || path.basename(doc.fileUrl));
+      filename = doc.filename;
+      contentType = 'application/pdf';
+    } else {
+      filePath = generateReleaseQcDocument(release);
+      filename = `${release.refNumber}-QC-Metadata-Sheet.txt`;
+      contentType = 'text/plain; charset=utf-8';
+    }
+  }
+
+  if (remotePersistenceConfigured) {
+    if (normAssetType === 'artwork') {
+      filePath = remoteObjectPathFromStoredName(release.storedArtworkFilename || '');
+    } else if (normAssetType === 'track') {
+      const selected = release.tracks.find(t => !trackId || t.id === trackId) || release.tracks[0];
+      filePath = remoteObjectPathFromStoredName(selected?.storedFilename || '');
+    } else if (normAssetType === 'document') {
+      const selected = documentId ? release.documents?.find(d => d.id === documentId) : release.documents?.[0];
+      if (selected?.storedFilename) filePath = remoteObjectPathFromStoredName(selected.storedFilename);
+    }
+    if (!filePath) return res.status(404).json({ error: 'The requested remote asset is not available.' });
+  } else if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'The requested file no longer exists on the server.' });
+  }
+
+  // Temporary signed token valid for 60 seconds
+  const expiresAt = Date.now() + 60 * 1000;
+  const token = generateSignedDownloadToken({
+    releaseId: release.id,
+    assetType: normAssetType as 'artwork' | 'track' | 'document',
+    assetId: normAssetType === 'track' ? trackId : documentId,
+    userId: user.id,
+    userRole: user.role,
+    filename,
+    filePath,
+    contentType,
+    expiresAt,
+  });
+
+  return res.json({
+    success: true,
+    downloadUrl: `/api/downloads/${token}`,
+    filename,
+    contentType,
+    expiresAt,
+    expiresInSeconds: 60,
+  });
+});
+
+// Endpoint 2: Serve the secure signed download (With expiration, signature, and access validation)
+apiRouter.get('/downloads/:token', (req: Request, res: Response) => {
+  const token = req.params.token;
+  const result = verifySignedDownloadToken(token);
+
+  if (!result.valid) {
+    if (result.expired) {
+      return res.status(410).json({
+        error: 'This download link has expired. Please click Download again to generate a fresh link.',
+        expired: true,
+        code: 'DOWNLOAD_EXPIRED'
+      });
+    }
+    return res.status(403).json({
+      error: result.error || 'Invalid or unauthorized download link.',
+    });
+  }
+
+  const payload = result.payload!;
+
+  // Verify user still exists and not disabled
+  const user = db.findUserById(payload.userId);
+  if (!user || user.status === 'disabled') {
+    return res.status(403).json({ error: 'User account disabled or not found.' });
+  }
+
+  // Verify release still exists
+  const release = db.findReleaseById(payload.releaseId);
+  if (!release) {
+    return res.status(404).json({ error: 'Release no longer exists.' });
+  }
+
+  // Verify permissions: admin has access, customer only to own release
+  if (user.role !== 'admin' && release.userId !== user.id) {
+    return res.status(403).json({ error: 'Unauthorized. You cannot access another customer\'s files.' });
+  }
+
+  if (remotePersistenceConfigured) {
+    if (!payload.filePath || payload.filePath.startsWith('/') || payload.filePath.includes('\\')) {
+      return res.status(404).json({ error: 'The requested remote asset is not configured.' });
+    }
+    try {
+      return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(payload.filePath), 120));
+    } catch (error: any) {
+      return res.status(404).json({ error: `The requested file could not be retrieved from persistent storage: ${error?.message || 'storage error'}` });
+    }
+  }
+
+  if (!fs.existsSync(payload.filePath)) {
+    return res.status(404).json({ error: 'The requested file no longer exists on the server.' });
+  }
+
+  res.setHeader('Content-Type', payload.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(payload.filename)}"; filename*=UTF-8''${encodeURIComponent(payload.filename)}`);
+  res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  res.download(payload.filePath, payload.filename, (err) => {
+    if (err && !res.headersSent) res.status(500).json({ error: 'Error transmitting file.' });
+  });
+});
+
+// Direct download fallback routes (Support Bearer auth header OR signed token ticket)
+apiRouter.get('/releases/:id/download-artwork', (req: Request, res: Response) => {
+  // If ticket passed in query
+  if (req.query.ticket && typeof req.query.ticket === 'string') {
+    return res.redirect(`/api/downloads/${req.query.ticket}`);
+  }
+
+  // Otherwise run auth
+  authMiddleware(req as AuthenticatedRequest, res, () => {
+    const authReq = req as AuthenticatedRequest;
+    const release = db.findReleaseById(authReq.params.id);
+    if (!release) return res.status(404).json({ error: 'Release not found.' });
+
+    if (authReq.user!.role !== 'admin' && release.userId !== authReq.user!.id) {
+      return res.status(403).json({ error: 'Unauthorized. You cannot access another customer\'s files.' });
+    }
+
+    const filename = release.storedArtworkFilename || path.basename(release.artworkUrl);
+    if (remotePersistenceConfigured && filename.startsWith('remote:')) return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(filename), 300));
+    const filePath = path.join(ARTWORK_DIR, filename);
+
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, release.artworkFilename || `${release.refNumber}-cover.jpg`);
+    }
+    return res.status(404).json({ error: 'The requested artwork file no longer exists on the server.' });
+  });
+});
+
+apiRouter.get('/releases/:id/download-track/:trackId', (req: Request, res: Response) => {
+  if (req.query.ticket && typeof req.query.ticket === 'string') {
+    return res.redirect(`/api/downloads/${req.query.ticket}`);
+  }
+
+  authMiddleware(req as AuthenticatedRequest, res, () => {
+    const authReq = req as AuthenticatedRequest;
+    const release = db.findReleaseById(authReq.params.id);
+    if (!release) return res.status(404).json({ error: 'Release not found.' });
+
+    if (authReq.user!.role !== 'admin' && release.userId !== authReq.user!.id) {
+      return res.status(403).json({ error: 'Unauthorized. You cannot access another customer\'s files.' });
+    }
+
+    const track = release.tracks.find(t => t.id === authReq.params.trackId);
+    if (!track) return res.status(404).json({ error: 'Track not found in this release.' });
+
+    const filename = track.storedFilename || path.basename(track.fileUrl);
+    if (remotePersistenceConfigured && filename.startsWith('remote:')) return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(filename), 300));
+    const filePath = path.join(AUDIO_DIR, filename);
+
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`);
+    }
+    return res.status(404).json({ error: 'The requested MP3 audio file no longer exists on the server.' });
+  });
+});
+
+apiRouter.get('/releases/:id/download-document', (req: Request, res: Response) => {
+  if (req.query.ticket && typeof req.query.ticket === 'string') {
+    return res.redirect(`/api/downloads/${req.query.ticket}`);
+  }
+
+  authMiddleware(req as AuthenticatedRequest, res, () => {
+    const authReq = req as AuthenticatedRequest;
+    const release = db.findReleaseById(authReq.params.id);
+    if (!release) return res.status(404).json({ error: 'Release not found.' });
+
+    if (authReq.user!.role !== 'admin' && release.userId !== authReq.user!.id) {
+      return res.status(403).json({ error: 'Unauthorized. You cannot access another customer\'s files.' });
+    }
+
+    const filePath = generateReleaseQcDocument(release);
+    const filename = `${release.refNumber}-QC-Metadata-Sheet.txt`;
+
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, filename);
+    }
+    return res.status(404).json({ error: 'The requested document file no longer exists on the server.' });
+  });
+});
+
+// Hosted persistent assets. The object path is base64url encoded so slashes are safe in the URL.
+apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
+  if (!remotePersistenceConfigured) return res.status(404).json({ error: 'Hosted asset storage is not enabled.' });
+  let objectPath: string;
+  try { objectPath = decodeRemoteAssetPath(req.params.encoded); } catch (_) { return res.status(400).json({ error: 'Invalid asset path.' }); }
+
+  let user: User | null = null;
+  const token = getAuthTokenFromRequest(req);
+  if (token) { const verified = verifySessionToken(token); if (verified) user = db.findUserById(verified.userId) || null; }
+
+  if (!user || user.role !== 'admin') {
+    const releaseOwns = db.getReleases().some(r => {
+      const paths = [r.storedArtworkFilename, ...(r.tracks || []).map(t => t.storedFilename), ...(r.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
+      return paths.some(p => remoteObjectPathFromStoredName(p) === objectPath) && (r.userId === user?.id || r.allowPublicShare);
+    });
+    const catalogueOwns = !!user && db.getCatalogue().some(c => {
+      const paths = [c.storedArtworkFilename, ...(c.tracks || []).map(t => t.storedFilename), ...(c.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
+      return paths.some(p => remoteObjectPathFromStoredName(p) === objectPath) && c.userId === user!.id;
+    });
+    if (!releaseOwns && !catalogueOwns) return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  try { return res.redirect(remoteSignedUrl(objectPath, 300)); }
+  catch (error: any) { return res.status(404).json({ error: `Asset unavailable: ${error?.message || 'storage error'}` }); }
+});
+
+// ----------------------------------------------------
+// RELEASES API
+// ----------------------------------------------------
+
+apiRouter.get('/releases', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role === 'admin') {
+    const releases = db.getReleases();
+    return res.json({ releases });
+  }
+
+  // Client only ever sees their OWN real releases
+  const clientReleases = db.getReleasesByUserId(user.id);
+  res.json({ releases: clientReleases });
+});
+
+apiRouter.get('/releases/:id', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const release = db.findReleaseById(req.params.id);
+
+  if (!release) {
+    return res.status(404).json({ error: 'Release not found.' });
+  }
+
+  // Client cannot view another client's release
+  if (user.role !== 'admin' && release.userId !== user.id) {
+    return res.status(403).json({ error: 'Unauthorized to view this release.' });
+  }
+
+  res.json({ release });
+});
+
+apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const {
+    title,
+    releaseType,
+    primaryArtists,
+    featuredArtists,
+    primaryArtistProfiles,
+    featuredArtistProfiles,
+    artistProfiles,
+    genre,
+    subGenre,
+    language,
+    composers,
+    producers,
+    targetReleaseDate,
+    previouslyReleased,
+    previousReleaseDetails,
+    cLine,
+    pLine,
+    artworkUrl,
+    artworkFilename,
+    storedArtworkFilename,
+    artworkDimensions,
+    tracks,
+    clientNotes,
+  } = req.body;
+
+  // Strict Validation
+  if (!title || !title.trim()) {
+    return res.status(400).json({ error: 'Release title is required.' });
+  }
+  if (!releaseType || !['Single', 'EP', 'Album'].includes(releaseType)) {
+    return res.status(400).json({ error: 'Release type must be Single, EP, or Album.' });
+  }
+
+  // Determine effective primary artists
+  const effectivePrimaryArtists: string[] = (
+    Array.isArray(primaryArtists) && primaryArtists.length > 0
+      ? primaryArtists
+      : Array.isArray(primaryArtistProfiles) && primaryArtistProfiles.length > 0
+      ? primaryArtistProfiles.map((p: any) => p.name)
+      : []
+  ).map((a: string) => (typeof a === 'string' ? a.trim() : '')).filter(Boolean);
+
+  if (effectivePrimaryArtists.length === 0) {
+    return res.status(400).json({ error: 'At least one primary artist is required.' });
+  }
+
+  if (!genre) {
+    return res.status(400).json({ error: 'Genre is required.' });
+  }
+  if (!targetReleaseDate) {
+    return res.status(400).json({ error: 'Target release date is required.' });
+  }
+
+  // Strict 14-day release rule: Must be AT LEAST 14 DAYS in the future from today
+  const now = new Date();
+  const subYear = now.getFullYear();
+  const subMonth = now.getMonth();
+  const subDate = now.getDate();
+  const minAllowedDate = new Date(subYear, subMonth, subDate + 14);
+
+  const dateParts = String(targetReleaseDate).split('-').map(Number);
+  const targetDateObj = dateParts.length === 3
+    ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+    : new Date(targetReleaseDate);
+
+  if (isNaN(targetDateObj.getTime()) || targetDateObj < minAllowedDate) {
+    return res.status(400).json({ error: 'Release date must be at least 14 days from today.' });
+  }
+
+  // Profile URL validation helper
+  const isValidHttpUrl = (str?: string) => {
+    if (!str || !str.trim()) return true;
+    try {
+      const u = new URL(str.trim());
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
+  const allArtistProfiles = [
+    ...(Array.isArray(primaryArtistProfiles) ? primaryArtistProfiles : []),
+    ...(Array.isArray(featuredArtistProfiles) ? featuredArtistProfiles : []),
+    ...(Array.isArray(artistProfiles) ? artistProfiles : []),
+  ];
+  for (const prof of allArtistProfiles) {
+    if (!prof?.name?.trim()) return res.status(400).json({ error: 'Every artist must have a name.' });
+    if (!prof.spotifyProfileUrl || !isValidHttpUrl(prof.spotifyProfileUrl)) {
+      return res.status(400).json({ error: `Spotify Artist Profile for "${prof.name}" is required and must be a valid URL.` });
+    }
+    if (!prof.appleMusicProfileUrl || !isValidHttpUrl(prof.appleMusicProfileUrl)) {
+      return res.status(400).json({ error: `Apple Music Artist Profile for "${prof.name}" is required and must be a valid URL.` });
+    }
+  }
+
+  if (!artworkUrl) {
+    return res.status(400).json({ error: 'Cover artwork is required.' });
+  }
+  if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+    return res.status(400).json({ error: 'At least one MP3 audio track master is required.' });
+  }
+
+  // Validate audio files are MP3 & song artist metadata
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    if (!t.title || !t.title.trim()) {
+      return res.status(400).json({ error: 'Every audio track must have a track title.' });
+    }
+    if (!t.filename || !t.filename.toLowerCase().endsWith('.mp3')) {
+      return res.status(400).json({ error: `Track "${t.title}" must be an MP3 audio file (.mp3).` });
+    }
+
+    if ((releaseType === 'EP' || releaseType === 'Album')) {
+      if (!t.primaryArtist?.trim()) return res.status(400).json({ error: `Track #${i + 1} requires a Primary Artist.` });
+      if (!t.primaryArtistSpotifyUrl || !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} Spotify Artist Profile is required and must be a valid URL.` });
+      if (!t.primaryArtistAppleMusicUrl || !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} Apple Music Artist Profile is required and must be a valid URL.` });
+    }
+    if (Array.isArray(t.artistProfiles)) {
+      for (const ap of t.artistProfiles) {
+        if (!ap?.name?.trim()) return res.status(400).json({ error: `Track #${i + 1} contains an artist without a name.` });
+        if (!ap.spotifyProfileUrl || !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Spotify Artist Profile is required and must be a valid URL.` });
+        if (!ap.appleMusicProfileUrl || !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Apple Music Artist Profile is required and must be a valid URL.` });
+      }
+    }
+
+    // For EP/Episode and Album releases, require artist information for every song
+    if (releaseType === 'EP' || releaseType === 'Album') {
+      const hasSongArtist = !!t.primaryArtist?.trim();
+      if (!hasSongArtist) {
+        return res.status(400).json({
+          error: `Track #${i + 1} (${t.title || 'Untitled'}) requires a Primary Artist for ${releaseType === 'EP' ? 'Episode/EP' : 'Album'} releases.`
+        });
+      }
+    }
+  }
+
+  const refNumber = generateRefNumber();
+  const nowIso = new Date().toISOString();
+
+  const newRelease: Release = {
+    id: `rel_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    userId: user.id,
+    userEmail: user.email,
+    artistLabelName: user.name,
+    refNumber,
+    title: title.trim(),
+    releaseType,
+    primaryArtists: effectivePrimaryArtists,
+    featuredArtists: Array.isArray(featuredArtists)
+      ? featuredArtists.map((a: string) => a.trim()).filter(Boolean)
+      : Array.isArray(featuredArtistProfiles)
+      ? featuredArtistProfiles.map((p: any) => p.name).filter(Boolean)
+      : [],
+    primaryArtistProfiles: Array.isArray(primaryArtistProfiles) ? primaryArtistProfiles : undefined,
+    featuredArtistProfiles: Array.isArray(featuredArtistProfiles) ? featuredArtistProfiles : undefined,
+    artistProfiles: Array.isArray(artistProfiles) ? artistProfiles : undefined,
+    genre,
+    subGenre: subGenre || undefined,
+    language: language || 'Zulu / English',
+    composers: Array.isArray(composers) ? composers.map((c: string) => c.trim()).filter(Boolean) : [],
+    producers: Array.isArray(producers) ? producers.map((p: string) => p.trim()).filter(Boolean) : [],
+    targetReleaseDate,
+    previouslyReleased: !!previouslyReleased,
+    previousReleaseDetails: previousReleaseDetails || undefined,
+    cLine: `${new Date().getFullYear()} Mid-Ama Promo`,
+    pLine: `${new Date().getFullYear()} Mid-Ama Promo`,
+    artworkUrl,
+    artworkFilename: artworkFilename || 'cover.jpg',
+    storedArtworkFilename,
+    artworkDimensions: artworkDimensions || { width: 1400, height: 1400 },
+    tracks: tracks.map((t: any, index: number) => ({
+      id: `trk_${Date.now()}_${index + 1}`,
+      trackNumber: t.trackNumber || index + 1,
+      title: t.title.trim(),
+      version: t.version || 'Original Mix',
+      filename: t.filename,
+      storedFilename: t.storedFilename,
+      fileUrl: t.fileUrl,
+      fileSize: t.fileSize || 0,
+      duration: t.duration || 0,
+      isrc: t.isrc || '',
+      explicit: !!t.explicit,
+      primaryArtist: t.primaryArtist?.trim() || (releaseType === 'Single' ? (effectivePrimaryArtists[0] || user.name) : ''),
+      primaryArtistSpotifyUrl: t.primaryArtistSpotifyUrl?.trim() || undefined,
+      primaryArtistAppleMusicUrl: t.primaryArtistAppleMusicUrl?.trim() || undefined,
+      featuredArtists: Array.isArray(t.featuredArtists) ? t.featuredArtists.filter(Boolean) : [],
+      artistProfiles: Array.isArray(t.artistProfiles) ? t.artistProfiles : undefined,
+    })),
+    clientNotes: clientNotes || '',
+    status: 'Pending Review',
+    allowPublicShare: true,
+    submittedAt: nowIso,
+    updatedAt: nowIso,
+    statusHistory: [
+      {
+        status: 'Pending Review',
+        note: 'Release submitted by client. Waiting for Administrator review.',
+        timestamp: nowIso,
+        updatedBy: user.name,
+      }
+    ]
+  };
+
+  const saved = db.createRelease(newRelease);
+
+  // Send complete submission details to midnightamapiano@yahoo.com
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  try {
+    await sendAdminReleaseEmail(saved, baseUrl);
+  } catch (err) {
+    console.error('Error sending admin notification email:', err);
+    // Do not fail submission if mail delivery throws
+  }
+
+  // Also record client confirmation notification
+  await sendNotification({
+    recipientEmail: user.email,
+    recipientName: user.name,
+    subject: `Submission Received: ${saved.title} [${saved.refNumber}] - Mid-Ama Promo™`,
+    template: 'submission_received',
+    metadata: {
+      refNumber: saved.refNumber,
+      title: saved.title,
+      trackCount: saved.tracks.length,
+      targetDate: saved.targetReleaseDate,
+    }
+  });
+
+  res.status(201).json({
+    message: 'Release submitted successfully! Reference number: ' + saved.refNumber,
+    release: saved,
+  });
+});
+
+// Admin Approve Release
+apiRouter.post('/releases/:id/approve', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const now = new Date().toISOString();
+  const updatedHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: 'Approved' as ReleaseStatus,
+      note: req.body.note || 'Release approved for worldwide distribution.',
+      timestamp: now,
+      updatedBy: req.user!.name,
+    }
+  ];
+
+  const updated = db.updateRelease(existing.id, {
+    status: 'Approved',
+    approvalDate: now,
+    adminNotes: req.body.note || 'Approved by Mid-Ama Promo Administration.',
+    statusHistory: updatedHistory,
+  });
+
+  // Notify client of approval
+  await sendNotification({
+    recipientEmail: existing.userEmail,
+    recipientName: existing.artistLabelName,
+    subject: `Release Approved: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
+    template: 'approved_distribution',
+    metadata: {
+      refNumber: existing.refNumber,
+      title: existing.title,
+      approvalDate: now,
+      note: req.body.note,
+    }
+  });
+
+  res.json({
+    message: `Release ${existing.refNumber} has been approved!`,
+    release: updated,
+  });
+});
+
+// Admin-managed pre-save links for approved releases
+apiRouter.patch('/releases/:id/presave-links', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  if (existing.status !== 'Approved' && existing.status !== 'Completed') {
+    return res.status(400).json({ error: 'Pre-save links can only be managed for approved releases.' });
+  }
+
+  if (!Array.isArray(req.body?.links)) {
+    return res.status(400).json({ error: 'A links array is required.' });
+  }
+
+  const links = req.body.links.map((raw: any, index: number) => {
+    const label = String(raw?.label || '').trim();
+    const url = String(raw?.url || '').trim();
+    if (!label) throw new Error(`Pre-save link #${index + 1} requires a label.`);
+    if (label.length > 80) throw new Error(`Pre-save link #${index + 1} label is too long.`);
+    if (url.length > 2000) throw new Error(`Pre-save link #${index + 1} URL is too long.`);
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`Pre-save link #${index + 1} must be a valid URL.`);
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error(`Pre-save link #${index + 1} must use http:// or https://.`);
+    }
+    return {
+      id: String(raw?.id || `presave_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`),
+      label,
+      url,
+    };
+  });
+
+  if (links.length > 20) {
+    return res.status(400).json({ error: 'A release can have a maximum of 20 pre-save links.' });
+  }
+
+  const updated = db.updateRelease(existing.id, { preSaveLinks: links });
+  if (!updated) return res.status(404).json({ error: 'Release could not be updated.' });
+
+  res.json({
+    message: links.length ? 'Pre-save links updated successfully.' : 'Pre-save links removed.',
+    release: updated,
+  });
+});
+
+// Admin Mark Release Completed / Distributed
+apiRouter.post('/releases/:id/complete', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const now = new Date().toISOString();
+  const updatedHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: 'Completed' as ReleaseStatus,
+      note: req.body.note ? `Distribution Completed: ${req.body.note.trim()}` : 'Distribution completed across worldwide DSP streaming platforms.',
+      timestamp: now,
+      updatedBy: req.user!.name,
+    }
+  ];
+
+  const updated = db.updateRelease(existing.id, {
+    status: 'Completed',
+    adminNotes: req.body.note?.trim() || existing.adminNotes,
+    statusHistory: updatedHistory,
+  });
+
+  // Notify client
+  await sendNotification({
+    recipientEmail: existing.userEmail,
+    recipientName: existing.artistLabelName,
+    subject: `Release Distribution Completed: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
+    template: 'approved_distribution',
+    metadata: {
+      refNumber: existing.refNumber,
+      title: existing.title,
+      note: req.body.note,
+    }
+  });
+
+  res.json({
+    message: `Release ${existing.refNumber} marked as Completed.`,
+    release: updated,
+  });
+});
+
+// Admin Deny Release (Requires Reason)
+apiRouter.post('/releases/:id/deny', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'A denial reason is required when denying a release.' });
+  }
+
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const now = new Date().toISOString();
+  const updatedHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: 'Denied' as ReleaseStatus,
+      note: `Denied: ${reason.trim()}`,
+      timestamp: now,
+      updatedBy: req.user!.name,
+    }
+  ];
+
+  const updated = db.updateRelease(existing.id, {
+    status: 'Denied',
+    denialReason: reason.trim(),
+    adminNotes: reason.trim(),
+    statusHistory: updatedHistory,
+  });
+
+  // Notify client of denial with reason
+  await sendNotification({
+    recipientEmail: existing.userEmail,
+    recipientName: existing.artistLabelName,
+    subject: `Release Denied: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
+    template: 'denied',
+    metadata: {
+      refNumber: existing.refNumber,
+      title: existing.title,
+      reason: reason.trim(),
+    }
+  });
+
+  res.json({
+    message: `Release ${existing.refNumber} has been denied.`,
+    release: updated,
+  });
+});
+
+// Admin Request Corrections
+apiRouter.post('/releases/:id/request-corrections', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const { note } = req.body;
+  if (!note || !note.trim()) {
+    return res.status(400).json({ error: 'Please specify the corrections required from the artist.' });
+  }
+
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const now = new Date().toISOString();
+  const updatedHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: 'Corrections Required' as ReleaseStatus,
+      note: `Corrections Required: ${note.trim()}`,
+      timestamp: now,
+      updatedBy: req.user!.name,
+    }
+  ];
+
+  const updated = db.updateRelease(existing.id, {
+    status: 'Corrections Required',
+    adminNotes: note.trim(),
+    statusHistory: updatedHistory,
+  });
+
+  // Notify client
+  await sendNotification({
+    recipientEmail: existing.userEmail,
+    recipientName: existing.artistLabelName,
+    subject: `Corrections Required: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
+    template: 'corrections_required',
+    metadata: {
+      refNumber: existing.refNumber,
+      title: existing.title,
+      note: note.trim(),
+    }
+  });
+
+  res.json({
+    message: `Corrections requested for ${existing.refNumber}.`,
+    release: updated,
+  });
+});
+
+// ----------------------------------------------------
+// PUBLIC SHARE / SHOWCASE (If allowed)
+// ----------------------------------------------------
+
+apiRouter.get('/public/share/:refNumber', (req: Request, res: Response) => {
+  const refNumber = req.params.refNumber;
+  const release = db.findReleaseByRef(refNumber);
+
+  if (!release) {
+    return res.status(404).json({ error: 'Release not found. Please verify reference number.' });
+  }
+
+  if (!release.allowPublicShare || release.status === 'Denied') {
+    return res.status(403).json({ error: 'This release showcase is currently restricted.' });
+  }
+
+  const publicData = {
+    refNumber: release.refNumber,
+    title: release.title,
+    releaseType: release.releaseType,
+    primaryArtists: release.primaryArtists,
+    featuredArtists: release.featuredArtists,
+    genre: release.genre,
+    subGenre: release.subGenre,
+    language: release.language,
+    targetReleaseDate: release.targetReleaseDate,
+    artworkUrl: release.artworkUrl,
+    artistLabelName: release.artistLabelName,
+    status: release.status,
+    tracks: release.tracks.map(t => ({
+      id: t.id,
+      trackNumber: t.trackNumber,
+      title: t.title,
+      version: t.version,
+      fileUrl: t.fileUrl,
+      duration: t.duration,
+      explicit: t.explicit,
+    })),
+  };
+
+  res.json({ release: publicData });
+});
+
+// ----------------------------------------------------
+// ADMIN DASHBOARD & REAL CLIENT REGISTRATION
+// ----------------------------------------------------
+
+// Admin Diagnostic Endpoint reporting safe persistence and connectivity status without secrets
+apiRouter.get('/admin/diagnostic', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const isConfigured = remotePersistenceConfigured;
+  const dbOk = isConfigured ? remoteCheckDatabase() : false;
+  const storageOk = isConfigured ? remoteCheckStorage() : false;
+  const authOk = isConfigured ? remoteCheckAuth() : false;
+
+  res.json({
+    persistenceMode: isConfigured ? 'supabase-postgres' : 'local-json',
+    supabaseConfigured: isConfigured,
+    databaseConfigured: dbOk,
+    storageConfigured: storageOk,
+    authConfigured: authOk,
+  });
+});
+
+apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const isConfigured = remotePersistenceConfigured;
+  const dbOk = isConfigured ? remoteCheckDatabase() : false;
+  const storageOk = isConfigured ? remoteCheckStorage() : false;
+  const authOk = isConfigured ? remoteCheckAuth() : false;
+
+  res.json({
+    persistenceMode: isConfigured ? 'supabase-postgres' : 'local-json',
+    supabaseConfigured: isConfigured,
+    databaseConfigured: dbOk,
+    storageConfigured: storageOk,
+    authConfigured: authOk,
+    persistence: db.getPersistenceInfo(),
+  });
+});
+
+apiRouter.get('/admin/stats', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const releases = db.getReleases();
+  const users = db.getUsers().filter(u => u.role === 'client');
+
+  const totalClients = users.length;
+  const totalReleases = releases.length;
+  const pendingReviews = releases.filter(r => r.status === 'Pending Review').length;
+  const correctionsRequired = releases.filter(r => r.status === 'Corrections Required').length;
+  const approved = releases.filter(r => r.status === 'Approved').length;
+  const denied = releases.filter(r => r.status === 'Denied').length;
+
+  res.json({
+    stats: {
+      totalClients,
+      totalReleases,
+      pendingReviews,
+      correctionsRequired,
+      approved,
+      denied,
+    }
+  });
+});
+
+apiRouter.get('/admin/clients', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const users = db.getUsers().filter(u => u.role === 'client');
+  const releases = db.getReleases();
+
+  const clientsWithStats = users.map(u => {
+    const clientReleases = releases.filter(r => r.userId === u.id);
+    const { passwordHash, ...safeUser } = u;
+    return {
+      ...safeUser,
+      releasesCount: clientReleases.length,
+      releases: clientReleases,
+      privateAccessUrl: u.inviteToken ? `/register?invite=${u.inviteToken}` : null,
+    };
+  });
+
+  res.json({ clients: clientsWithStats });
+});
+
+// Admin Register Client Manually (Client creates their password upon first visit, or admin sets it)
+apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const { email, name, password, phone, country } = req.body;
+
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid client email address is required.' });
+  }
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Artist or Record Label name is required.' });
+  }
+
+  const existing = db.findUserByEmail(email.trim());
+  if (existing) {
+    return res.status(400).json({ error: 'A client account with this email address already exists.' });
+  }
+
+  const now = new Date().toISOString();
+  let passwordHash: string;
+  let status: 'active' | 'pending_activation' = 'active';
+
+  if (password && password.trim().length >= 6) {
+    passwordHash = hashPassword(password.trim());
+    status = 'active';
+  } else {
+    // When registered without a password, client will simply visit the site, enter their email, and set their password!
+    passwordHash = hashPassword(generateToken());
+    status = 'pending_activation';
+  }
+
+  const newClient: User = {
+    id: `usr_client_${Date.now()}`,
+    email: email.trim().toLowerCase(),
+    name: name.trim(),
+    role: 'client',
+    passwordHash,
+    status,
+    phone: phone?.trim() || '',
+    country: country?.trim() || 'South Africa',
+    createdAt: now,
+  };
+
+  if (remotePersistenceConfigured) {
+    try {
+      const authUser = remoteFindAuthUserByEmail(newClient.email) || remoteCreateAuthUser(newClient.email, password && password.trim().length >= 6 ? password.trim() : generateToken(), {
+        role: 'client',
+        name: newClient.name,
+        midama_user_id: newClient.id,
+      });
+      newClient.authUserId = authUser.id;
+    } catch (error: any) {
+      return res.status(502).json({ error: `Client was not registered because Supabase Auth could not create the account: ${error?.message || error}` });
+    }
+  }
+
+  db.createUser(newClient);
+
+  // Internal audit log
+  await sendNotification({
+    recipientEmail: newClient.email,
+    recipientName: newClient.name,
+    subject: 'Mid-Ama Promo™ - Client Account Registered',
+    template: 'invitation',
+    metadata: {
+      registeredBy: req.user!.name,
+      status: newClient.status,
+    }
+  });
+
+  const { passwordHash: _hash, ...safeUser } = newClient;
+  res.status(201).json({
+    message: `Client "${newClient.name}" successfully registered! The client can now visit Mid-Ama Promo, choose "First Time? Create Password", enter ${newClient.email}, and immediately access their empty dashboard. No codes needed!`,
+    client: safeUser,
+    hasDirectPassword: !!password,
+  });
+});
+
+// Admin manually set or reset a client's password directly
+apiRouter.post('/admin/clients/:id/password', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const { password } = req.body;
+  if (!password || password.trim().length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+  }
+  const client = db.findUserById(req.params.id);
+  if (!client || client.role !== 'client') {
+    return res.status(404).json({ error: 'Client account not found.' });
+  }
+
+  if (remotePersistenceConfigured) {
+    try {
+      const authUser = client.authUserId ? remoteUpdateAuthUser(client.authUserId, { password: password.trim(), email_confirm: true }) : (remoteFindAuthUserByEmail(client.email) || remoteCreateAuthUser(client.email, password.trim(), { role: 'client', name: client.name, midama_user_id: client.id }));
+      client.authUserId = authUser.id;
+    } catch (error: any) {
+      return res.status(502).json({ error: `Supabase Auth password update failed: ${error?.message || error}` });
+    }
+  }
+
+  const updated = db.updateUser(client.id, {
+    authUserId: client.authUserId,
+    passwordHash: hashPassword(password.trim()),
+    status: 'active',
+  });
+  const { passwordHash: _hash, ...safeUser } = updated!;
+  res.json({ message: `Password successfully updated for ${client.name}.`, client: safeUser });
+});
+
+// Admin: Access client account without client password (support & management)
+apiRouter.post('/admin/clients/:id/access-session', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const targetId = req.params.id;
+  const targetClient = db.findUserById(targetId);
+  if (!targetClient) {
+    return res.status(404).json({ error: 'Client account not found.' });
+  }
+  if (targetClient.role !== 'client') {
+    return res.status(403).json({ error: 'Access denied. You can only access client accounts.' });
+  }
+
+  // Issue a fresh authenticated session token for the target client.
+  // The client's existing password remains completely untouched and is never read, stored, or revealed.
+  const clientToken = createSessionToken(targetClient.id, 2 * 60 * 60);
+  const { passwordHash: _hash, ...safeClient } = targetClient;
+
+  return res.json({
+    message: `Access granted for client ${targetClient.name}.`,
+    token: clientToken,
+    client: safeClient,
+  });
+});
+
+// Admin update client status (enable/disable)
+apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const { status, name, phone } = req.body;
+  const client = db.findUserById(req.params.id);
+
+  if (!client || client.role !== 'client') {
+    return res.status(404).json({ error: 'Client not found.' });
+  }
+
+  const updates: Partial<User> = {};
+  if (status && ['active', 'disabled', 'pending_activation'].includes(status)) {
+    updates.status = status;
+  }
+  if (name) updates.name = name.trim();
+  if (phone !== undefined) updates.phone = phone.trim();
+
+  const updated = db.updateUser(client.id, updates);
+  const { passwordHash, ...safeUser } = updated!;
+  res.json({ message: 'Client account updated.', client: safeUser });
+});
+
+// Admin delete client account
+apiRouter.delete('/admin/clients/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const client = db.findUserById(req.params.id);
+  if (!client || client.role !== 'client') {
+    return res.status(404).json({ error: 'Client account not found.' });
+  }
+
+  const success = db.deleteUser(client.id);
+  if (!success) {
+    return res.status(500).json({ error: 'Failed to delete client account.' });
+  }
+
+  res.json({ success: true, message: `Client "${client.name}" successfully deleted.` });
+});
+
+// Admin get single client's submitted releases
+apiRouter.get('/admin/clients/:id/releases', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const client = db.findUserById(req.params.id);
+  if (!client) return res.status(404).json({ error: 'Client not found.' });
+
+  const clientReleases = db.getReleasesByUserId(client.id);
+  res.json({ client, releases: clientReleases });
+});
+
+// ----------------------------------------------------
+// ADMIN DATA SAFETY / BACKUP & CATALOGUE
+// ----------------------------------------------------
+
+const backupUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+    filename: (_req, file, cb) => cb(null, `midama-restore-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${path.extname(file.originalname) || '.tar.gz'}`),
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
+});
+
+apiRouter.get('/admin/backup/export', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'midama-backup-'));
+  const archive = path.join(tempDir, `mid-ama-promo-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.tar.gz`);
+  try {
+    // The archive is a complete copy of the persistent application state.
+    execFileSync('tar', ['-czf', archive, '-C', process.cwd(), 'data/db.json', 'uploads'], { stdio: 'ignore' });
+    res.download(archive, path.basename(archive), err => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      if (err && !res.headersSent) res.status(500).json({ error: 'Backup download failed.' });
+    });
+  } catch (error: any) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    res.status(500).json({ error: `Backup export failed: ${error?.message || 'tar is unavailable on this server.'}` });
+  }
+});
+
+apiRouter.post('/admin/backup/import', authMiddleware, adminOnly, backupUpload.single('backup'), (req: AuthenticatedRequest, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: 'Select a Mid-Ama Promo .tar.gz backup file.' });
+  const archive = req.file.path;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'midama-restore-'));
+  try {
+    const listing = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' });
+    const entries = listing.split('\n').map(x => x.trim()).filter(Boolean);
+    const unsafe = entries.some(entry => {
+      const n = entry.replace(/\\/g, '/');
+      return n.startsWith('/') || n.split('/').includes('..') || (!['data/db.json', 'uploads'].some(prefix => n === prefix || n.startsWith(prefix + '/')));
+    });
+    if (unsafe) return res.status(400).json({ error: 'Backup contains unsafe paths and was rejected.' });
+
+    execFileSync('tar', ['-xzf', archive, '-C', tempDir, '--no-same-owner', '--no-same-permissions']);
+    const backupDbPath = path.join(tempDir, 'data', 'db.json');
+    if (!fs.existsSync(backupDbPath)) return res.status(400).json({ error: 'Backup is missing data/db.json.' });
+    const snapshot = JSON.parse(fs.readFileSync(backupDbPath, 'utf8'));
+    const result = db.importAdditive(snapshot);
+
+    let assetsRestored = 0;
+    const backupUploads = path.join(tempDir, 'uploads');
+    const copyMissing = (currentDir: string, backupDir: string) => {
+      if (!fs.existsSync(backupDir)) return;
+      for (const name of fs.readdirSync(backupDir)) {
+        const src = path.join(backupDir, name);
+        const dst = path.join(currentDir, name);
+        const stat = fs.statSync(src);
+        if (stat.isDirectory()) {
+          fs.mkdirSync(dst, { recursive: true });
+          copyMissing(dst, src);
+        } else if (stat.isFile() && !fs.existsSync(dst)) {
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          fs.copyFileSync(src, dst);
+          assetsRestored++;
+        }
+      }
+    };
+    copyMissing(UPLOADS_DIR, backupUploads);
+    res.json({ success: true, message: 'Backup imported additively. Existing records and files were preserved.', ...result, assetsRestored });
+  } catch (error: any) {
+    res.status(400).json({ error: `Backup import failed: ${error?.message || 'Invalid backup archive.'}` });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(archive, { force: true });
+  }
+});
+
+apiRouter.get('/catalogue', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const entries = db.getCatalogueByUserId(user.id).map(entry => ({
+    ...entry,
+    release: entry.releaseId ? db.findReleaseById(entry.releaseId) || null : null,
+  }));
+  res.json({ entries });
+});
+
+function buildCatalogueEntryPayload(body: any, client: User, adminId: string, existing?: CatalogueEntry): CatalogueEntry {
+  const now = new Date().toISOString();
+  const legacyRelease = existing?.releaseId ? db.findReleaseById(existing.releaseId) : undefined;
+  const primaryArtists = Array.isArray(body.primaryArtists)
+    ? body.primaryArtists.map((x: any) => String(x).trim()).filter(Boolean)
+    : (body.primaryArtist ? [String(body.primaryArtist).trim()] : []);
+  const featuredArtists = Array.isArray(body.featuredArtists)
+    ? body.featuredArtists.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+  const composers = Array.isArray(body.composers)
+    ? body.composers.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+  const producers = Array.isArray(body.producers)
+    ? body.producers.map((x: any) => String(x).trim()).filter(Boolean)
+    : [];
+
+  const tracks = Array.isArray(body.tracks) ? body.tracks.map((t: any, index: number) => ({
+    id: t.id || `cat_trk_${Date.now()}_${index + 1}_${crypto.randomBytes(3).toString('hex')}`,
+    trackNumber: Number(t.trackNumber || index + 1),
+    title: String(t.title || body.title || '').trim(),
+    version: String(t.version || 'Original Mix').trim(),
+    filename: String(t.filename || '').trim(),
+    storedFilename: t.storedFilename || undefined,
+    fileUrl: String(t.fileUrl || '').trim(),
+    fileSize: Number(t.fileSize || 0),
+    duration: Number(t.duration || 0),
+    isrc: String(t.isrc || body.isrc || '').trim(),
+    explicit: !!t.explicit,
+  })).filter((t: any) => t.title) : (existing?.tracks || []);
+
+  const entry: CatalogueEntry = {
+    id: existing?.id || `cat_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    releaseId: existing?.releaseId || (body.releaseId ? String(body.releaseId) : undefined),
+    userId: existing?.userId || client.id,
+    title: String(body.title ?? existing?.title ?? legacyRelease?.title ?? '').trim(),
+    artistLabelName: String(body.artistLabelName ?? existing?.artistLabelName ?? legacyRelease?.artistLabelName ?? client.name).trim(),
+    releaseType: ['Single', 'EP', 'Album'].includes(body.releaseType) ? body.releaseType : (existing?.releaseType || legacyRelease?.releaseType || 'Single'),
+    primaryArtists: primaryArtists.length ? primaryArtists : (existing?.primaryArtists?.length ? existing.primaryArtists : (legacyRelease?.primaryArtists || [client.name])),
+    featuredArtists: featuredArtists.length ? featuredArtists : (existing?.featuredArtists || legacyRelease?.featuredArtists || []),
+    genre: String(body.genre ?? existing?.genre ?? legacyRelease?.genre ?? '').trim(),
+    subGenre: body.subGenre !== undefined ? String(body.subGenre || '').trim() || undefined : (existing?.subGenre || legacyRelease?.subGenre),
+    language: body.language !== undefined ? String(body.language || '').trim() || undefined : (existing?.language || legacyRelease?.language),
+    composers: composers.length ? composers : (existing?.composers?.length ? existing.composers : (legacyRelease?.composers || [])),
+    producers: producers.length ? producers : (existing?.producers?.length ? existing.producers : (legacyRelease?.producers || [])),
+    isrc: body.isrc !== undefined ? String(body.isrc || '').trim() || undefined : existing?.isrc,
+    upc: body.upc !== undefined ? String(body.upc || '').trim() || undefined : existing?.upc,
+    catalogueReleaseDate: body.catalogueReleaseDate !== undefined ? String(body.catalogueReleaseDate || '').trim() || undefined : existing?.catalogueReleaseDate,
+    previouslyReleased: body.previouslyReleased !== undefined ? !!body.previouslyReleased : (existing?.previouslyReleased ?? true),
+    previousReleaseDetails: body.previousReleaseDetails !== undefined ? String(body.previousReleaseDetails || '').trim() || undefined : existing?.previousReleaseDetails,
+    cLine: `${new Date().getFullYear()} Mid-Ama Promo`,
+    pLine: `${new Date().getFullYear()} Mid-Ama Promo`,
+    artworkUrl: body.artworkUrl !== undefined ? String(body.artworkUrl || '').trim() || undefined : (existing?.artworkUrl || legacyRelease?.artworkUrl),
+    artworkFilename: body.artworkFilename !== undefined ? String(body.artworkFilename || '').trim() || undefined : (existing?.artworkFilename || legacyRelease?.artworkFilename),
+    storedArtworkFilename: body.storedArtworkFilename !== undefined ? String(body.storedArtworkFilename || '').trim() || undefined : (existing?.storedArtworkFilename || legacyRelease?.storedArtworkFilename),
+    artworkDimensions: body.artworkDimensions || existing?.artworkDimensions || legacyRelease?.artworkDimensions,
+    tracks: tracks.length ? tracks : (legacyRelease?.tracks || []),
+    documents: Array.isArray(body.documents) ? body.documents : (existing?.documents || legacyRelease?.documents || []),
+    notes: body.notes !== undefined ? String(body.notes || '').trim() : (existing?.notes || legacyRelease?.clientNotes),
+    addedAt: existing?.addedAt || now,
+    addedBy: existing?.addedBy || adminId,
+    distributionStatus: ['Not Queued', 'Ready for SoundBlast', 'Submitted to SoundBlast', 'Distributed', 'Rejected'].includes(body.distributionStatus)
+      ? body.distributionStatus : (existing?.distributionStatus || 'Not Queued'),
+    distributionNote: body.distributionNote !== undefined ? String(body.distributionNote || '').trim() || undefined : existing?.distributionNote,
+    updatedAt: now,
+  };
+
+  if (!entry.title) throw new Error('Song/release title is required.');
+  if (!entry.primaryArtists.length) throw new Error('At least one primary artist is required.');
+  if (!entry.genre) throw new Error('Genre is required.');
+  return entry;
+}
+
+apiRouter.post('/admin/catalogue', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'A registered client is required.' });
+    const client = db.findUserById(String(userId));
+    if (!client || client.role !== 'client') return res.status(404).json({ error: 'Client account not found.' });
+
+    const entry = buildCatalogueEntryPayload(req.body, client, req.user!.id);
+    db.addCatalogueEntry(entry);
+    res.status(201).json({ message: 'Catalogue record created.', entry });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || 'Could not create catalogue record.' });
+  }
+});
+
+apiRouter.get('/admin/catalogue', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const entries = db.getCatalogue().map(entry => {
+    const release = entry.releaseId ? db.findReleaseById(entry.releaseId) || null : null;
+    const clientUser = db.findUserById(entry.userId);
+    const { passwordHash, ...client } = clientUser || ({} as User);
+    // Legacy linked entries pre-date the standalone catalogue model, so expose their release metadata consistently.
+    const merged = release ? {
+      ...entry,
+      title: entry.title || release.title,
+      artistLabelName: entry.artistLabelName || release.artistLabelName,
+      releaseType: entry.releaseType || release.releaseType,
+      primaryArtists: entry.primaryArtists?.length ? entry.primaryArtists : release.primaryArtists,
+      featuredArtists: entry.featuredArtists?.length ? entry.featuredArtists : release.featuredArtists,
+      genre: entry.genre || release.genre,
+      language: entry.language || release.language,
+      composers: entry.composers?.length ? entry.composers : (release.composers || []),
+      producers: entry.producers?.length ? entry.producers : (release.producers || []),
+      artworkUrl: entry.artworkUrl || release.artworkUrl,
+      artworkFilename: entry.artworkFilename || release.artworkFilename,
+      tracks: entry.tracks?.length ? entry.tracks : release.tracks,
+    } : entry;
+    return { ...merged, release, client: clientUser ? client : null };
+  }).filter(entry => entry.client);
+  res.json({ entries });
+});
+
+apiRouter.post('/admin/catalogue/add-existing-release', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const { userId, releaseId } = req.body;
+  if (!userId || !releaseId) return res.status(400).json({ error: 'Client and existing release are required.' });
+  const client = db.findUserById(userId);
+  if (!client || client.role !== 'client') return res.status(404).json({ error: 'Client account not found.' });
+  const release = db.findReleaseById(releaseId);
+  if (!release) return res.status(404).json({ error: 'Existing release not found.' });
+  if (release.userId !== client.id) return res.status(409).json({ error: 'This release belongs to a different client. The original owner cannot be changed by catalogue linking.' });
+  const existing = db.findCatalogueEntry(release.id, client.id);
+  if (existing) return res.status(409).json({ error: 'This release is already in the client catalogue.', entry: existing });
+  const now = new Date().toISOString();
+  const entry: CatalogueEntry = {
+    id: `cat_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    releaseId: release.id,
+    userId: client.id,
+    title: release.title,
+    artistLabelName: release.artistLabelName,
+    releaseType: release.releaseType,
+    primaryArtists: release.primaryArtists,
+    featuredArtists: release.featuredArtists,
+    genre: release.genre,
+    subGenre: release.subGenre,
+    language: release.language,
+    composers: release.composers || [],
+    producers: release.producers || [],
+    previouslyReleased: release.previouslyReleased,
+    previousReleaseDetails: release.previousReleaseDetails,
+    cLine: release.cLine,
+    pLine: release.pLine,
+    artworkUrl: release.artworkUrl,
+    artworkFilename: release.artworkFilename,
+    storedArtworkFilename: release.storedArtworkFilename,
+    artworkDimensions: release.artworkDimensions,
+    tracks: release.tracks,
+    documents: release.documents,
+    notes: release.clientNotes,
+    addedAt: now,
+    addedBy: req.user!.id,
+    distributionStatus: 'Ready for SoundBlast',
+    updatedAt: now,
+  };
+  db.addCatalogueEntry(entry);
+  res.status(201).json({ message: 'Existing release added to the client catalogue.', entry, release, client });
+});
+
+apiRouter.patch('/admin/catalogue/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const existing = db.findCatalogueById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Catalogue entry not found.' });
+    const client = db.findUserById(existing.userId);
+    if (!client || client.role !== 'client') return res.status(404).json({ error: 'Catalogue client no longer exists.' });
+    const entry = buildCatalogueEntryPayload(req.body, client, existing.addedBy, existing);
+    db.updateCatalogueEntry(existing.id, entry);
+    res.json({ message: 'Catalogue entry updated.', entry });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || 'Could not update catalogue entry.' });
+  }
+});
+
+// ----------------------------------------------------
+// ENQUIRIES / CONTACT
+// ----------------------------------------------------
+
+apiRouter.post('/enquiries', (req: Request, res: Response) => {
+  const { name, email, phone, subject, message } = req.body;
+  if (!name || !email || !message) {
+    return res.status(400).json({ error: 'Name, email, and message are required.' });
+  }
+
+  const enquiry = db.createEnquiry({
+    id: `enq_${Date.now()}`,
+    name: name.trim(),
+    email: email.trim(),
+    phone: phone?.trim() || '',
+    subject: subject?.trim() || 'General Music Distribution Enquiry',
+    message: message.trim(),
+    createdAt: new Date().toISOString(),
+    status: 'new',
+  });
+
+  res.status(201).json({
+    message: 'Enquiry received. Mid-Ama Promo administration will review your message.',
+    enquiry,
+  });
+});
+
+apiRouter.get('/admin/enquiries', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const enquiries = db.getEnquiries();
+  res.json({ enquiries });
+});
+
+apiRouter.patch('/admin/enquiries/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const { status } = req.body;
+  if (!status || !['new', 'read', 'replied'].includes(status)) {
+    return res.status(400).json({ error: 'Valid status required.' });
+  }
+  const updated = db.updateEnquiryStatus(req.params.id, status);
+  if (!updated) return res.status(404).json({ error: 'Enquiry not found.' });
+  res.json({ message: 'Enquiry updated.', enquiry: updated });
+});
+
+// ----------------------------------------------------
+// NOTIFICATIONS AUDIT LOG
+// ----------------------------------------------------
+
+apiRouter.get('/notifications', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  const allNotifs = db.getNotifications();
+
+  if (user.role === 'admin') {
+    return res.json({ notifications: allNotifs });
+  }
+
+  const clientNotifs = allNotifs.filter(n => n.recipientEmail.toLowerCase() === user.email.toLowerCase());
+  res.json({ notifications: clientNotifs });
+});

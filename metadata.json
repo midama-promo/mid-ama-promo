@@ -1,0 +1,6 @@
+{
+  "name": "Mid-Ama Promo™ - Worldwide Music Distribution & Promotion",
+  "description": "Worldwide music distribution, promotion, and release submission portal for independent Amapiano and Afro music artists and record labels.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
