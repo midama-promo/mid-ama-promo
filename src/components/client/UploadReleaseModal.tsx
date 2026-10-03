@@ -45,6 +45,82 @@ export interface TrackFeaturedArtist {
   appleMusicProfileCreateRequested?: boolean;
 }
 
+type ArtistProfilePlatform = 'spotify' | 'apple';
+
+interface ArtistProfileFieldProps {
+  platform: ArtistProfilePlatform;
+  url?: string;
+  createRequested?: boolean;
+  onUrlChange: (value: string) => void;
+  onCreateRequested: () => void;
+  onUseExisting: () => void;
+  compact?: boolean;
+}
+
+const ArtistProfileField: React.FC<ArtistProfileFieldProps> = ({
+  platform,
+  url = '',
+  createRequested = false,
+  onUrlChange,
+  onCreateRequested,
+  onUseExisting,
+  compact = false,
+}) => {
+  const isSpotify = platform === 'spotify';
+  const label = isSpotify ? 'Spotify Artist Profile' : 'Apple Music Artist Profile';
+  const placeholder = isSpotify
+    ? 'https://open.spotify.com/artist/...'
+    : 'https://music.apple.com/.../artist/...';
+  const createLabel = isSpotify ? 'Create new Spotify profile' : 'Create new Apple Music profile';
+
+  return (
+    <div>
+      <label className={`block ${compact ? 'text-[10px]' : 'text-[11px]'} font-semibold text-neutral-400 mb-1`}>
+        {label}
+      </label>
+
+      <div className="flex flex-wrap gap-1.5 mb-1.5">
+        <button
+          type="button"
+          onClick={onUseExisting}
+          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+            !createRequested
+              ? 'bg-neutral-800 border-neutral-600 text-white'
+              : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:text-neutral-300'
+          }`}
+        >
+          Use existing profile
+        </button>
+        <button
+          type="button"
+          onClick={onCreateRequested}
+          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+            createRequested
+              ? 'bg-red-950/60 border-red-700 text-red-300'
+              : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          {createLabel}
+        </button>
+      </div>
+
+      {createRequested ? (
+        <div className="rounded-lg border border-red-900/50 bg-red-950/20 px-2.5 py-2 text-[10px] leading-relaxed text-neutral-400">
+          No profile URL is required. This release will be submitted with a request to create a new {isSpotify ? 'Spotify' : 'Apple Music'} artist profile.
+        </div>
+      ) : (
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 ${compact ? 'text-xs' : 'text-xs'} text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono`}
+        />
+      )}
+    </div>
+  );
+};
+
 export interface AudioTrackFormItem {
   id: string;
   trackNumber: number;
@@ -1218,37 +1294,31 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
-                              Spotify Artist Profile
-                            </label>
-                            <input
-                              type="url"
-                              value={artist.spotifyProfileUrl}
-                              onChange={(e) =>
-                                handleUpdatePrimaryArtist(idx, 'spotifyProfileUrl', e.target.value)
-                              }
-                              placeholder="https://open.spotify.com/artist/..."
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
-                            />
-                            <button type="button" onClick={() => { handleUpdatePrimaryArtist(idx, 'spotifyProfileCreateRequested' as any, true); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Spotify profile? Open Spotify for Artists</button>
-                          </div>
+                          <ArtistProfileField
+                            platform="spotify"
+                            url={artist.spotifyProfileUrl}
+                            createRequested={artist.spotifyProfileCreateRequested}
+                            onUrlChange={(value) => handleUpdatePrimaryArtist(idx, 'spotifyProfileUrl', value)}
+                            onCreateRequested={() => {
+                              setPrimaryArtistsList((current) => current.map((item, itemIdx) =>
+                                itemIdx === idx ? { ...item, spotifyProfileUrl: '', spotifyProfileCreateRequested: true } : item
+                              ));
+                            }}
+                            onUseExisting={() => handleUpdatePrimaryArtist(idx, 'spotifyProfileCreateRequested' as any, false)}
+                          />
 
-                          <div>
-                            <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
-                              Apple Music Artist Profile
-                            </label>
-                            <input
-                              type="url"
-                              value={artist.appleMusicProfileUrl}
-                              onChange={(e) =>
-                                handleUpdatePrimaryArtist(idx, 'appleMusicProfileUrl', e.target.value)
-                              }
-                              placeholder="https://music.apple.com/.../artist/..."
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
-                            />
-                            <button type="button" onClick={() => { handleUpdatePrimaryArtist(idx, 'appleMusicProfileCreateRequested' as any, true); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Apple Music profile? Open Apple Music for Artists</button>
-                          </div>
+                          <ArtistProfileField
+                            platform="apple"
+                            url={artist.appleMusicProfileUrl}
+                            createRequested={artist.appleMusicProfileCreateRequested}
+                            onUrlChange={(value) => handleUpdatePrimaryArtist(idx, 'appleMusicProfileUrl', value)}
+                            onCreateRequested={() => {
+                              setPrimaryArtistsList((current) => current.map((item, itemIdx) =>
+                                itemIdx === idx ? { ...item, appleMusicProfileUrl: '', appleMusicProfileCreateRequested: true } : item
+                              ));
+                            }}
+                            onUseExisting={() => handleUpdatePrimaryArtist(idx, 'appleMusicProfileCreateRequested' as any, false)}
+                          />
                         </div>
                       </div>
                     ))}
@@ -1312,37 +1382,33 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
-                                  Spotify Artist Profile
-                                </label>
-                                <input
-                                  type="url"
-                                  value={artist.spotifyProfileUrl}
-                                  onChange={(e) =>
-                                    handleUpdateFeaturedArtist(idx, 'spotifyProfileUrl', e.target.value)
-                                  }
-                                  placeholder="https://open.spotify.com/artist/..."
-                                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
-                                />
-                              </div>
+                              <ArtistProfileField
+                                platform="spotify"
+                                url={artist.spotifyProfileUrl}
+                                createRequested={artist.spotifyProfileCreateRequested}
+                                onUrlChange={(value) => handleUpdateFeaturedArtist(idx, 'spotifyProfileUrl', value)}
+                                onCreateRequested={() => {
+                                  setFeaturedArtistsList((current) => current.map((item, itemIdx) =>
+                                    itemIdx === idx ? { ...item, spotifyProfileUrl: '', spotifyProfileCreateRequested: true } : item
+                                  ));
+                                }}
+                                onUseExisting={() => handleUpdateFeaturedArtist(idx, 'spotifyProfileCreateRequested' as any, false)}
+                              />
 
-                              <div>
-                                <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
-                                  Apple Music Artist Profile
-                                </label>
-                                <input
-                                  type="url"
-                                  value={artist.appleMusicProfileUrl}
-                                  onChange={(e) =>
-                                    handleUpdateFeaturedArtist(idx, 'appleMusicProfileUrl', e.target.value)
-                                  }
-                                  placeholder="https://music.apple.com/.../artist/..."
-                                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
-                                />
+                              <ArtistProfileField
+                                platform="apple"
+                                url={artist.appleMusicProfileUrl}
+                                createRequested={artist.appleMusicProfileCreateRequested}
+                                onUrlChange={(value) => handleUpdateFeaturedArtist(idx, 'appleMusicProfileUrl', value)}
+                                onCreateRequested={() => {
+                                  setFeaturedArtistsList((current) => current.map((item, itemIdx) =>
+                                    itemIdx === idx ? { ...item, appleMusicProfileUrl: '', appleMusicProfileCreateRequested: true } : item
+                                  ));
+                                }}
+                                onUseExisting={() => handleUpdateFeaturedArtist(idx, 'appleMusicProfileCreateRequested' as any, false)}
+                              />
                               </div>
                             </div>
-                          </div>
                         ))}
 
                         <button
@@ -1792,41 +1858,51 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               />
                             </div>
 
-                            <div>
-                              <label className="block text-[10px] font-mono text-neutral-400 mb-1">
-                                Spotify Artist Profile
-                              </label>
-                              <input
-                                type="url"
-                                value={track.primaryArtistSpotifyUrl || ''}
-                                onChange={(e) => {
-                                  const copy = [...tracks];
-                                  copy[idx].primaryArtistSpotifyUrl = e.target.value;
-                                  setTracks(copy);
-                                }}
-                                placeholder="https://open.spotify.com/artist/..."
-                                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
-                              />
-                              <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].primaryArtistSpotifyProfileCreateRequested=true; setTracks(copy); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Spotify profile? Open Spotify for Artists</button>
-                            </div>
+                            <ArtistProfileField
+                              platform="spotify"
+                              compact
+                              url={track.primaryArtistSpotifyUrl || ''}
+                              createRequested={track.primaryArtistSpotifyProfileCreateRequested}
+                              onUrlChange={(value) => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistSpotifyUrl = value;
+                                setTracks(copy);
+                              }}
+                              onCreateRequested={() => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistSpotifyUrl = '';
+                                copy[idx].primaryArtistSpotifyProfileCreateRequested = true;
+                                setTracks(copy);
+                              }}
+                              onUseExisting={() => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistSpotifyProfileCreateRequested = false;
+                                setTracks(copy);
+                              }}
+                            />
 
-                            <div>
-                              <label className="block text-[10px] font-mono text-neutral-400 mb-1">
-                                Apple Music Artist Profile
-                              </label>
-                              <input
-                                type="url"
-                                value={track.primaryArtistAppleMusicUrl || ''}
-                                onChange={(e) => {
-                                  const copy = [...tracks];
-                                  copy[idx].primaryArtistAppleMusicUrl = e.target.value;
-                                  setTracks(copy);
-                                }}
-                                placeholder="https://music.apple.com/.../artist/..."
-                                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
-                              />
-                              <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].primaryArtistAppleMusicProfileCreateRequested=true; setTracks(copy); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Apple Music profile? Open Apple Music for Artists</button>
-                            </div>
+                            <ArtistProfileField
+                              platform="apple"
+                              compact
+                              url={track.primaryArtistAppleMusicUrl || ''}
+                              createRequested={track.primaryArtistAppleMusicProfileCreateRequested}
+                              onUrlChange={(value) => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistAppleMusicUrl = value;
+                                setTracks(copy);
+                              }}
+                              onCreateRequested={() => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistAppleMusicUrl = '';
+                                copy[idx].primaryArtistAppleMusicProfileCreateRequested = true;
+                                setTracks(copy);
+                              }}
+                              onUseExisting={() => {
+                                const copy = [...tracks];
+                                copy[idx].primaryArtistAppleMusicProfileCreateRequested = false;
+                                setTracks(copy);
+                              }}
+                            />
                           </div>
 
                           {/* Per-Song Featured Artists via "+ Add Artist" */}
@@ -1857,38 +1933,44 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                     />
                                   </div>
                                   <div className="sm:col-span-4">
-                                    <input
-                                      type="url"
-                                      value={fa.spotifyProfileUrl || ''}
-                                      onChange={(e) =>
-                                        handleUpdateTrackFeaturedArtist(
-                                          idx,
-                                          faIdx,
-                                          'spotifyProfileUrl',
-                                          e.target.value
-                                        )
-                                      }
-                                      placeholder="Spotify Artist Profile"
-                                      className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
+                                    <ArtistProfileField
+                                      platform="spotify"
+                                      compact
+                                      url={fa.spotifyProfileUrl || ''}
+                                      createRequested={fa.spotifyProfileCreateRequested}
+                                      onUrlChange={(value) => handleUpdateTrackFeaturedArtist(idx, faIdx, 'spotifyProfileUrl', value)}
+                                      onCreateRequested={() => {
+                                        const copy = [...tracks];
+                                        copy[idx].featuredArtists![faIdx].spotifyProfileUrl = '';
+                                        copy[idx].featuredArtists![faIdx].spotifyProfileCreateRequested = true;
+                                        setTracks(copy);
+                                      }}
+                                      onUseExisting={() => {
+                                        const copy = [...tracks];
+                                        copy[idx].featuredArtists![faIdx].spotifyProfileCreateRequested = false;
+                                        setTracks(copy);
+                                      }}
                                     />
-                                    <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].featuredArtists![faIdx].spotifyProfileCreateRequested=true; setTracks(copy); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[9px] text-red-400 hover:text-red-300">Create Spotify profile</button>
                                   </div>
                                   <div className="sm:col-span-3">
-                                    <input
-                                      type="url"
-                                      value={fa.appleMusicProfileUrl || ''}
-                                      onChange={(e) =>
-                                        handleUpdateTrackFeaturedArtist(
-                                          idx,
-                                          faIdx,
-                                          'appleMusicProfileUrl',
-                                          e.target.value
-                                        )
-                                      }
-                                      placeholder="Apple Music Profile"
-                                      className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
+                                    <ArtistProfileField
+                                      platform="apple"
+                                      compact
+                                      url={fa.appleMusicProfileUrl || ''}
+                                      createRequested={fa.appleMusicProfileCreateRequested}
+                                      onUrlChange={(value) => handleUpdateTrackFeaturedArtist(idx, faIdx, 'appleMusicProfileUrl', value)}
+                                      onCreateRequested={() => {
+                                        const copy = [...tracks];
+                                        copy[idx].featuredArtists![faIdx].appleMusicProfileUrl = '';
+                                        copy[idx].featuredArtists![faIdx].appleMusicProfileCreateRequested = true;
+                                        setTracks(copy);
+                                      }}
+                                      onUseExisting={() => {
+                                        const copy = [...tracks];
+                                        copy[idx].featuredArtists![faIdx].appleMusicProfileCreateRequested = false;
+                                        setTracks(copy);
+                                      }}
                                     />
-                                    <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].featuredArtists![faIdx].appleMusicProfileCreateRequested=true; setTracks(copy); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[9px] text-red-400 hover:text-red-300">Create Apple Music profile</button>
                                   </div>
                                   <div className="sm:col-span-1 text-right">
                                     <button
