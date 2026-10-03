@@ -37,6 +37,14 @@ interface UploadReleaseModalProps {
   onSuccess: (newRelease: Release) => void;
 }
 
+export interface TrackPrimaryArtist {
+  name: string;
+  spotifyProfileUrl?: string;
+  appleMusicProfileUrl?: string;
+  spotifyProfileCreateRequested?: boolean;
+  appleMusicProfileCreateRequested?: boolean;
+}
+
 export interface TrackFeaturedArtist {
   name: string;
   spotifyProfileUrl?: string;
@@ -139,6 +147,7 @@ export interface AudioTrackFormItem {
   uploadError?: string;
   uploadedSuccess?: boolean;
   primaryArtist?: string;
+  primaryArtists?: TrackPrimaryArtist[];
   primaryArtistSpotifyUrl?: string;
   primaryArtistAppleMusicUrl?: string;
   primaryArtistSpotifyProfileCreateRequested?: boolean;
@@ -213,6 +222,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       file: null,
       explicit: false,
       primaryArtist: '',
+      primaryArtists: [{ name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false }],
       primaryArtistSpotifyUrl: '',
       primaryArtistAppleMusicUrl: '',
       primaryArtistSpotifyProfileCreateRequested: false,
@@ -477,6 +487,61 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const handleRemovePrimaryArtist = (idx: number) => {
     if (primaryArtistsList.length <= 1) return;
     setPrimaryArtistsList(primaryArtistsList.filter((_, i) => i !== idx));
+  };
+
+  // Track primary artist handlers (EP/Album)
+  const getTrackPrimaryArtists = (track: AudioTrackFormItem): TrackPrimaryArtist[] => {
+    if (track.primaryArtists && track.primaryArtists.length > 0) return track.primaryArtists;
+    return [{
+      name: track.primaryArtist || '',
+      spotifyProfileUrl: track.primaryArtistSpotifyUrl || '',
+      appleMusicProfileUrl: track.primaryArtistAppleMusicUrl || '',
+      spotifyProfileCreateRequested: !!track.primaryArtistSpotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!track.primaryArtistAppleMusicProfileCreateRequested,
+    }];
+  };
+
+  const handleAddTrackPrimaryArtist = (trackIdx: number) => {
+    const copy = [...tracks];
+    const cur = getTrackPrimaryArtists(copy[trackIdx]);
+    copy[trackIdx].primaryArtists = [
+      ...cur,
+      { name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
+    ];
+    setTracks(copy);
+  };
+
+  const handleUpdateTrackPrimaryArtist = (
+    trackIdx: number,
+    artistIdx: number,
+    field: keyof TrackPrimaryArtist,
+    val: string | boolean
+  ) => {
+    const copy = [...tracks];
+    const cur = getTrackPrimaryArtists(copy[trackIdx]);
+    cur[artistIdx] = { ...cur[artistIdx], [field]: val };
+    copy[trackIdx].primaryArtists = cur;
+    if (artistIdx === 0) {
+      copy[trackIdx].primaryArtist = cur[0].name;
+      copy[trackIdx].primaryArtistSpotifyUrl = cur[0].spotifyProfileUrl || '';
+      copy[trackIdx].primaryArtistAppleMusicUrl = cur[0].appleMusicProfileUrl || '';
+      copy[trackIdx].primaryArtistSpotifyProfileCreateRequested = !!cur[0].spotifyProfileCreateRequested;
+      copy[trackIdx].primaryArtistAppleMusicProfileCreateRequested = !!cur[0].appleMusicProfileCreateRequested;
+    }
+    setTracks(copy);
+  };
+
+  const handleRemoveTrackPrimaryArtist = (trackIdx: number, artistIdx: number) => {
+    const copy = [...tracks];
+    const cur = getTrackPrimaryArtists(copy[trackIdx]).filter((_, i) => i !== artistIdx);
+    copy[trackIdx].primaryArtists = cur;
+    const first = cur[0];
+    copy[trackIdx].primaryArtist = first?.name || '';
+    copy[trackIdx].primaryArtistSpotifyUrl = first?.spotifyProfileUrl || '';
+    copy[trackIdx].primaryArtistAppleMusicUrl = first?.appleMusicProfileUrl || '';
+    copy[trackIdx].primaryArtistSpotifyProfileCreateRequested = !!first?.spotifyProfileCreateRequested;
+    copy[trackIdx].primaryArtistAppleMusicProfileCreateRequested = !!first?.appleMusicProfileCreateRequested;
+    setTracks(copy);
   };
 
   // Add featured artist
@@ -836,26 +901,29 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         return false;
       }
 
-      // For EP/Episode and Album releases, require artist information for every song
+      // For EP/Album releases, require at least one primary artist for every song.
+      const songPrimaryArtists = getTrackPrimaryArtists(t);
       if (isEpOrAlbum) {
-        const songPrimaryArtist = t.primaryArtist?.trim() || '';
-        if (!songPrimaryArtist) {
-          setSubmitError(
-            `Track #${i + 1} (${t.title}) requires a Primary Artist for ${
-              releaseType === 'EP' ? 'Episode/EP' : 'Album'
-            } releases.`
-          );
+        const namedPrimaryArtists = songPrimaryArtists.filter((a) => a.name.trim());
+        if (namedPrimaryArtists.length === 0) {
+          setSubmitError(`Track #${i + 1} (${t.title}) requires at least one Primary Artist for ${releaseType === 'EP' ? 'EP' : 'Album'} releases.`);
           return false;
         }
-      }
-
-      if (isEpOrAlbum && ((!t.primaryArtistSpotifyUrl && !t.primaryArtistSpotifyProfileCreateRequested) || (t.primaryArtistSpotifyUrl && !isValidUrl(t.primaryArtistSpotifyUrl)))) {
-        setSubmitError(`Track #${i + 1} Spotify Artist Profile is required and must be a valid URL.`);
-        return false;
-      }
-      if (isEpOrAlbum && ((!t.primaryArtistAppleMusicUrl && !t.primaryArtistAppleMusicProfileCreateRequested) || (t.primaryArtistAppleMusicUrl && !isValidUrl(t.primaryArtistAppleMusicUrl)))) {
-        setSubmitError(`Track #${i + 1} Apple Music Artist Profile is required and must be a valid URL.`);
-        return false;
+        for (let pIdx = 0; pIdx < songPrimaryArtists.length; pIdx++) {
+          const pa = songPrimaryArtists[pIdx];
+          if (!pa.name.trim()) {
+            setSubmitError(`Track #${i + 1} Primary Artist #${pIdx + 1} requires a name or must be removed.`);
+            return false;
+          }
+          if ((!pa.spotifyProfileUrl && !pa.spotifyProfileCreateRequested) || (pa.spotifyProfileUrl && !isValidUrl(pa.spotifyProfileUrl))) {
+            setSubmitError(`Track #${i + 1} Spotify Artist Profile for "${pa.name}" is required and must be a valid URL.`);
+            return false;
+          }
+          if ((!pa.appleMusicProfileUrl && !pa.appleMusicProfileCreateRequested) || (pa.appleMusicProfileUrl && !isValidUrl(pa.appleMusicProfileUrl))) {
+            setSubmitError(`Track #${i + 1} Apple Music Artist Profile for "${pa.name}" is required and must be a valid URL.`);
+            return false;
+          }
+        }
       }
 
       // Validate song featured artists
@@ -926,9 +994,20 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         }));
 
       const finalTracks = tracks.map((t, idx) => {
-        const trackPrimary = t.primaryArtist?.trim() || effectivePrimaryArtists[0] || user?.name || 'Artist';
-        const trackSpotify = t.primaryArtistSpotifyUrl?.trim() || primaryArtistProfiles[0]?.spotifyProfileUrl;
-        const trackApple = t.primaryArtistAppleMusicUrl?.trim() || primaryArtistProfiles[0]?.appleMusicProfileUrl;
+        const trackPrimaryArtists = getTrackPrimaryArtists(t).filter((a) => a.name.trim());
+        const trackPrimary = trackPrimaryArtists.map((a) => a.name.trim()).join(', ') || effectivePrimaryArtists[0] || user?.name || 'Artist';
+        const firstTrackPrimary = trackPrimaryArtists[0];
+        const trackSpotify = firstTrackPrimary?.spotifyProfileUrl?.trim() || t.primaryArtistSpotifyUrl?.trim() || primaryArtistProfiles[0]?.spotifyProfileUrl;
+        const trackApple = firstTrackPrimary?.appleMusicProfileUrl?.trim() || t.primaryArtistAppleMusicUrl?.trim() || primaryArtistProfiles[0]?.appleMusicProfileUrl;
+
+        const songPrimaryProfiles: ArtistCredit[] = trackPrimaryArtists.map((pa) => ({
+          name: pa.name.trim(),
+          role: 'primary' as const,
+          spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || undefined,
+          appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || undefined,
+          spotifyProfileCreateRequested: !!pa.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!pa.appleMusicProfileCreateRequested,
+        }));
 
         const songFeaturedProfiles: ArtistCredit[] = (t.featuredArtists || [])
           .filter((fa) => fa.name.trim())
@@ -942,14 +1021,14 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           }));
 
         const trackArtistProfiles: ArtistCredit[] = [
-          {
+          ...(songPrimaryProfiles.length > 0 ? songPrimaryProfiles : [{
             name: trackPrimary,
-            role: 'primary',
+            role: 'primary' as const,
             spotifyProfileUrl: trackSpotify || undefined,
             appleMusicProfileUrl: trackApple || undefined,
             spotifyProfileCreateRequested: !!t.primaryArtistSpotifyProfileCreateRequested,
             appleMusicProfileCreateRequested: !!t.primaryArtistAppleMusicProfileCreateRequested,
-          },
+          }]),
           ...songFeaturedProfiles,
         ];
 
@@ -1826,87 +1905,40 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               </span>
                             </span>
 
-                            <button
-                              type="button"
-                              onClick={() => handleAddTrackFeaturedArtist(idx)}
-                              className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 font-semibold cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3 text-red-500" />
-                              <span>Add Artist</span>
-                            </button>
-                          </div>
-
-                          {/* Song Primary Artist */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                            <div>
-                              <label className="block text-[10px] font-mono text-neutral-400 mb-1">
-                                Song Primary Artist {releaseType === 'EP' || releaseType === 'Album' ? '*' : ''}
-                              </label>
-                              <input
-                                type="text"
-                                value={
-                                  track.primaryArtist !== undefined
-                                    ? track.primaryArtist
-                                    : primaryArtistsList[0]?.name || ''
-                                }
-                                onChange={(e) => {
-                                  const copy = [...tracks];
-                                  copy[idx].primaryArtist = e.target.value;
-                                  setTracks(copy);
-                                }}
-                                placeholder={primaryArtistsList[0]?.name || 'Primary Artist'}
-                                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
-                              />
+                            <div className="flex items-center gap-3">
+                              <button type="button" onClick={() => handleAddTrackPrimaryArtist(idx)} className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 font-semibold cursor-pointer">
+                                <Plus className="w-3 h-3 text-red-500" />
+                                <span>Add Primary Artist</span>
+                              </button>
+                              <button type="button" onClick={() => handleAddTrackFeaturedArtist(idx)} className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 font-semibold cursor-pointer">
+                                <Plus className="w-3 h-3 text-red-500" />
+                                <span>Add Featured Artist</span>
+                              </button>
                             </div>
-
-                            <ArtistProfileField
-                              platform="spotify"
-                              compact
-                              url={track.primaryArtistSpotifyUrl || ''}
-                              createRequested={track.primaryArtistSpotifyProfileCreateRequested}
-                              onUrlChange={(value) => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistSpotifyUrl = value;
-                                setTracks(copy);
-                              }}
-                              onCreateRequested={() => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistSpotifyUrl = '';
-                                copy[idx].primaryArtistSpotifyProfileCreateRequested = true;
-                                setTracks(copy);
-                              }}
-                              onUseExisting={() => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistSpotifyProfileCreateRequested = false;
-                                setTracks(copy);
-                              }}
-                            />
-
-                            <ArtistProfileField
-                              platform="apple"
-                              compact
-                              url={track.primaryArtistAppleMusicUrl || ''}
-                              createRequested={track.primaryArtistAppleMusicProfileCreateRequested}
-                              onUrlChange={(value) => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistAppleMusicUrl = value;
-                                setTracks(copy);
-                              }}
-                              onCreateRequested={() => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistAppleMusicUrl = '';
-                                copy[idx].primaryArtistAppleMusicProfileCreateRequested = true;
-                                setTracks(copy);
-                              }}
-                              onUseExisting={() => {
-                                const copy = [...tracks];
-                                copy[idx].primaryArtistAppleMusicProfileCreateRequested = false;
-                                setTracks(copy);
-                              }}
-                            />
                           </div>
 
-                          {/* Per-Song Featured Artists via "+ Add Artist" */}
+                          {/* Per-Song Primary Artists */}
+                           <div className="space-y-2">
+                             {getTrackPrimaryArtists(track).map((pa, paIdx) => (
+                               <div key={`primary-${paIdx}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-neutral-900/50 p-2 rounded-lg border border-neutral-800/60">
+                                 <div className="sm:col-span-4">
+                                   <label className="block text-[10px] font-mono text-neutral-400 mb-1">Primary Artist {paIdx + 1} {releaseType === 'EP' || releaseType === 'Album' ? '*' : ''}</label>
+                                   <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
+                                 </div>
+                                 <div className="sm:col-span-3">
+                                   <ArtistProfileField platform="spotify" compact url={pa.spotifyProfileUrl || ''} createRequested={pa.spotifyProfileCreateRequested} onUrlChange={(value) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileUrl', value)} onCreateRequested={() => { const copy = [...tracks]; const cur = getTrackPrimaryArtists(copy[idx]); cur[paIdx] = { ...cur[paIdx], spotifyProfileUrl: '', spotifyProfileCreateRequested: true }; copy[idx].primaryArtists = cur; setTracks(copy); }} onUseExisting={() => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileCreateRequested', false)} />
+                                 </div>
+                                 <div className="sm:col-span-3">
+                                   <ArtistProfileField platform="apple" compact url={pa.appleMusicProfileUrl || ''} createRequested={pa.appleMusicProfileCreateRequested} onUrlChange={(value) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'appleMusicProfileUrl', value)} onCreateRequested={() => { const copy = [...tracks]; const cur = getTrackPrimaryArtists(copy[idx]); cur[paIdx] = { ...cur[paIdx], appleMusicProfileUrl: '', appleMusicProfileCreateRequested: true }; copy[idx].primaryArtists = cur; setTracks(copy); }} onUseExisting={() => handleUpdateTrackPrimaryArtist(idx, paIdx, 'appleMusicProfileCreateRequested', false)} />
+                                 </div>
+                                 <div className="sm:col-span-2 flex justify-end gap-1">
+                                   {paIdx > 0 && <button type="button" onClick={() => handleRemoveTrackPrimaryArtist(idx, paIdx)} className="text-neutral-500 hover:text-red-400 p-1 cursor-pointer" title="Remove primary artist"><Trash2 className="w-3 h-3" /></button>}
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+
+                           {/* Per-Song Featured Artists via "+ Add Artist" */}
                           {track.featuredArtists && track.featuredArtists.length > 0 && (
                             <div className="space-y-2 pt-2 border-t border-neutral-900">
                               <span className="text-[10px] font-mono text-neutral-400 block uppercase">

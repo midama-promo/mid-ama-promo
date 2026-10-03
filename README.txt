@@ -1,16 +1,15 @@
-MID-AMA PROMO — Artist Profile Option Fix
+Mid-Ama Promo — EP/Album Track Artist Controls Fix
 
-Replace this file in the existing GitHub repository:
+This patch updates only:
 src/components/client/UploadReleaseModal.tsx
 
-The fix adds explicit options for Spotify and Apple Music:
-- Use existing profile → requires a valid URL.
-- Create new profile → URL is not required and the release records a profile-creation request.
+Changes:
+- EP/Album track page now has separate “Add Primary Artist” and “Add Featured Artist” buttons.
+- “Add Primary Artist” adds another primary-artist row instead of a featured artist row.
+- Multiple primary artists are preserved in track artistProfiles with role=primary.
+- “Add Featured Artist” continues to add a featured artist row.
+- Existing profile / create-new-profile controls work independently for each primary and featured artist.
+- Existing single-primary-artist data remains backward compatible.
+- Draft save/restore preserves the new primary artist list.
 
-The same options are available for:
-- Primary artists
-- Featured/additional artists
-- EP/Album per-track primary artists
-- EP/Album per-track featured artists
-
-No database schema, Supabase persistence, authentication, or server persistence code is changed by this patch.
+No database, Supabase, persistence, authentication, or server files are changed by this patch.
