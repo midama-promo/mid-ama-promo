@@ -607,7 +607,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         setUploadedArtworkUrl(res.fileUrl);
         setUploadedArtworkFilename(res.filename);
         setStoredArtworkFilename(res.storedFilename);
-        setArtworkPreviewUrl(res.fileUrl); // Keep updated with persistent URL
+        // Keep the local blob URL for the browser preview. The persistent server URL may be auth-protected.
+        // uploadedArtworkUrl is stored separately and used for the submitted release.
       } catch (err: any) {
         setArtworkValidationError(err.message || 'Failed to upload cover artwork to server.');
       } finally {
