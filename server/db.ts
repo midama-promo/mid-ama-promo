@@ -16,7 +16,10 @@ export interface User {
   id: string;
   authUserId?: string;
   email: string;
-  name: string; // Artist or Label Name
+  name: string; // Artist or Label Name / Artist Name
+  realFirstName?: string;
+  realSurname?: string;
+  artistName?: string;
   role: 'admin' | 'client';
   passwordHash: string;
   status: 'active' | 'pending_activation' | 'disabled';
@@ -35,6 +38,8 @@ export interface ArtistCredit {
   role?: 'primary' | 'featured';
   spotifyProfileUrl?: string;
   appleMusicProfileUrl?: string;
+  spotifyProfileCreateRequested?: boolean;
+  appleMusicProfileCreateRequested?: boolean;
 }
 
 export interface TrackItem {
@@ -62,7 +67,10 @@ export type ReleaseStatus =
   | 'Approved'
   | 'Completed'
   | 'Denied'
-  | 'Corrections Required';
+  | 'Corrections Required'
+  | 'Takedown Requested'
+  | 'Takedown Processing'
+  | 'Takedown Completed';
 
 export interface ReleaseDocumentItem {
   id: string;

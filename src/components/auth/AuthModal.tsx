@@ -3,7 +3,7 @@ import { X, Mail, AlertCircle, ArrowRight, CheckCircle2, ShieldCheck } from 'luc
 import { useAuth } from '../../context/AuthContext';
 import { Logo } from '../common/Logo';
 
-export type AuthTabMode = 'signin' | 'create-password' | 'reset';
+export type AuthTabMode = 'signin' | 'register' | 'create-password' | 'reset';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -15,12 +15,16 @@ interface AuthModalProps {
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
+  initialTab = 'signin',
   initialEmail = '',
   onClose,
   onSuccess,
 }) => {
-  const { requestLoginOtp, verifyLoginOtp } = useAuth();
+  const { requestLoginOtp, verifyLoginOtp, registerArtist } = useAuth();
   const [email, setEmail] = useState(initialEmail);
+  const [realFirstName, setRealFirstName] = useState('');
+  const [realSurname, setRealSurname] = useState('');
+  const [artistName, setArtistName] = useState('');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,6 +44,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setEmail(initialEmail || '');
+    setRealFirstName('');
+    setRealSurname('');
+    setArtistName('');
     setCode('');
     setStep('email');
     setError(null);
@@ -55,6 +62,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const cooldown = Math.max(0, Math.ceil((cooldownExpiresAt - now) / 1000));
 
   if (!isOpen) return null;
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!realFirstName.trim() || !realSurname.trim() || !artistName.trim() || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError('Enter your real first name, surname, artist name, and a valid email address.');
+      return;
+    }
+    if (cooldown > 0) { setError(`Please wait ${cooldown} seconds before requesting another code.`); return; }
+    try {
+      setIsSubmitting(true); setError(null);
+      const message = await registerArtist({ realFirstName: realFirstName.trim(), realSurname: realSurname.trim(), artistName: artistName.trim(), email: normalizedEmail });
+      setStep('code'); setEmail(normalizedEmail); setSuccessNotice(message);
+      const expiry = Date.now() + 60_000; setCooldownExpiresAt(expiry);
+      try { sessionStorage.setItem('midama_otp_cooldown_expires', String(expiry)); } catch (_) {}
+    } catch (err: any) { setError(err.message || 'Could not register your account.'); }
+    finally { setIsSubmitting(false); }
+  };
 
   const handleRequestCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,9 +151,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         <div className="mb-6 space-y-1">
           <Logo size="sm" />
-          <h2 className="text-xl sm:text-2xl font-bold text-white font-['Space_Grotesk'] pt-2">Secure Sign In</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white font-['Space_Grotesk'] pt-2">{initialTab === 'register' ? 'Artist Registration' : 'Secure Sign In'}</h2>
           <p className="text-xs text-neutral-400">
-            Sign in with a one-time code sent to your registered email. No password is required.
+            {initialTab === 'register' ? 'Register with your real details and verify your email with a one-time code. No password is required.' : 'Sign in with a one-time code sent to your registered email. No password is required.'}
           </p>
         </div>
 
@@ -152,6 +177,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {step === 'email' ? (
+          initialTab === 'register' ? (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label className="block text-xs font-semibold text-neutral-300 mb-1.5">Real First Name</label><input required value={realFirstName} onChange={e=>setRealFirstName(e.target.value)} className="w-full bg-neutral-900/90 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs text-white focus:outline-none focus:border-red-600" /></div>
+                <div><label className="block text-xs font-semibold text-neutral-300 mb-1.5">Surname</label><input required value={realSurname} onChange={e=>setRealSurname(e.target.value)} className="w-full bg-neutral-900/90 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs text-white focus:outline-none focus:border-red-600" /></div>
+              </div>
+              <div><label className="block text-xs font-semibold text-neutral-300 mb-1.5">Artist Name</label><input required value={artistName} onChange={e=>setArtistName(e.target.value)} placeholder="Your public artist name" className="w-full bg-neutral-900/90 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs text-white focus:outline-none focus:border-red-600" /></div>
+              <div><label className="block text-xs font-semibold text-neutral-300 mb-1.5">Email</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full bg-neutral-900/90 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs text-white focus:outline-none focus:border-red-600" /></div>
+              <button type="submit" disabled={isSubmitting} className="w-full py-3.5 px-4 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2"><span>{isSubmitting ? 'Registering...' : 'Register & Send Code'}</span><ArrowRight className="w-4 h-4" /></button>
+              <p className="text-[11px] text-neutral-500 text-center">Your real name is used for account records; your artist name is used for releases.</p>
+            </form>
+          ) : (
           <form onSubmit={handleRequestCode} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Email</label>
@@ -177,6 +214,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
+          )
         ) : (
           <form onSubmit={handleVerifyCode} className="space-y-4">
             <div>
@@ -226,7 +264,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         <div className="mt-6 pt-4 border-t border-neutral-900 text-center">
-          <p className="text-[11px] text-neutral-500">Only email addresses registered by Mid-Ama Promo can access the portal.</p>
+          <p className="text-[11px] text-neutral-500">Artists can register publicly; all access is verified by one-time email codes.</p>
         </div>
       </div>
     </div>

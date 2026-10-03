@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 
 interface FooterProps {
   onOpenSignIn: () => void;
-  onOpenCreatePassword?: () => void;
+  onOpenRegister?: () => void;
   onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onGoToDashboard: () => void;
@@ -13,7 +13,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({
   onOpenSignIn,
-  onOpenCreatePassword,
+  onOpenRegister,
   onOpenGetStarted,
   onOpenContact,
   onGoToDashboard,
@@ -75,6 +75,11 @@ export const Footer: React.FC<FooterProps> = ({
                   Amapiano & Afro Sound
                 </button>
               </li>
+              <li>
+                <button onClick={() => scrollTo('policies')} className="hover:text-white transition-colors">
+                  Royalty & Platform Policies
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -99,13 +104,7 @@ export const Footer: React.FC<FooterProps> = ({
                       <span>Sign In</span>
                     </button>
                   </li>
-                  {onOpenCreatePassword && (
-                    <li>
-                      <button onClick={onOpenCreatePassword} className="hover:text-white transition-colors">
-                        Client Login
-                      </button>
-                    </li>
-                  )}
+                  {onOpenRegister && <li><button onClick={onOpenRegister} className="hover:text-white transition-colors">Register Artist</button></li>}
                   <li>
                     <button onClick={onOpenGetStarted} className="text-red-400 hover:text-red-300 font-semibold transition-colors">
                       Submit / Get Started
@@ -127,10 +126,10 @@ export const Footer: React.FC<FooterProps> = ({
               Compliance
             </h4>
             <p className="text-[11px] text-neutral-400 leading-normal">
-              Audio: 320kbps MP3 Constant Bitrate only.
+              Audio: Lossless WAV or FLAC masters only.
             </p>
             <p className="text-[11px] text-neutral-400 leading-normal">
-              Artwork: 1000×1000 to 2500×2500 pixels square JPG/PNG.
+              Artwork: 3000×3000 to 4000×4000 pixels square JPG/PNG.
             </p>
             <p className="text-[11px] text-neutral-400 leading-normal">
               Artists retain 100% ownership of master rights and recording copyrights.

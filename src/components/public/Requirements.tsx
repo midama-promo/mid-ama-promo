@@ -62,14 +62,14 @@ export const Requirements: React.FC = () => {
                 <h3 className="text-base font-bold text-white font-['Space_Grotesk']">
                   Audio Masters
                 </h3>
-                <span className="text-xs font-mono text-red-500">Strict MP3 Format</span>
+                <span className="text-xs font-mono text-red-500">Lossless WAV / FLAC Format</span>
               </div>
             </div>
 
             <ul className="space-y-3 text-xs sm:text-sm text-neutral-300">
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span><strong>MP3 audio format only</strong> (.mp3 file extension).</span>
+                <span><strong>WAV or FLAC audio format only</strong> (.wav or .flac file extension).</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
@@ -81,7 +81,7 @@ export const Requirements: React.FC = () => {
               </li>
               <li className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <span>WAV, AIFF, FLAC, and M4A are rejected at upload; convert to 320kbps MP3 before uploading.</span>
+                <span>Only WAV and FLAC master files are accepted.</span>
               </li>
             </ul>
           </div>
@@ -107,7 +107,7 @@ export const Requirements: React.FC = () => {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span><strong>Between 1000×1000 and 2500×2500 pixels</strong>.</span>
+                <span><strong>Between 3000×3000 and 4000×4000 pixels</strong>.</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
@@ -236,7 +236,7 @@ export const Requirements: React.FC = () => {
                 </p>
               ) : (
                 <p className="text-red-400 font-medium pt-1">
-                  ✗ Needs adjustment: Please export your artwork as a square JPG or PNG between 1000×1000 and 2500×2500 pixels.
+                  ✗ Needs adjustment: Please export your artwork as a square JPG or PNG between 3000×3000 and 4000×4000 pixels.
                 </p>
               )}
             </div>

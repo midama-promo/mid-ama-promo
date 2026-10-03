@@ -5,6 +5,9 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  realFirstName?: string;
+  realSurname?: string;
+  artistName?: string;
   role: UserRole;
   status: UserStatus;
   phone?: string;
@@ -22,7 +25,10 @@ export type ReleaseStatus =
   | 'Approved'
   | 'Completed'
   | 'Denied'
-  | 'Corrections Required';
+  | 'Corrections Required'
+  | 'Takedown Requested'
+  | 'Takedown Processing'
+  | 'Takedown Completed';
 
 export type ReleaseType = 'Single' | 'EP' | 'Album';
 
@@ -32,6 +38,8 @@ export interface ArtistCredit {
   role?: 'primary' | 'featured';
   spotifyProfileUrl?: string;
   appleMusicProfileUrl?: string;
+  spotifyProfileCreateRequested?: boolean;
+  appleMusicProfileCreateRequested?: boolean;
 }
 
 export interface TrackItem {

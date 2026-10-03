@@ -6,10 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-
-# Local/potentially sensitive runtime data
-data/
-uploads/
-.env
-.env.*
-!.env.example

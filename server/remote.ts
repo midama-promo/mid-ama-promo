@@ -234,6 +234,14 @@ export function remoteCreateAuthUser(email: string, password: string, userMetada
   return user;
 }
 
+export function remoteDeleteAuthUser(authUserId: string): void {
+  if (!remotePersistenceConfigured) return;
+  requestSync(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+    method: 'DELETE',
+    headers: authHeaders({ Accept: 'application/json' }),
+  });
+}
+
 export function remoteUpdateAuthUser(authUserId: string, patch: Record<string, any>): SupabaseAuthUser {
   if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
   const result = requestSync(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {

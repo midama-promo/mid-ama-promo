@@ -41,6 +41,8 @@ export interface TrackFeaturedArtist {
   name: string;
   spotifyProfileUrl?: string;
   appleMusicProfileUrl?: string;
+  spotifyProfileCreateRequested?: boolean;
+  appleMusicProfileCreateRequested?: boolean;
 }
 
 export interface AudioTrackFormItem {
@@ -63,6 +65,8 @@ export interface AudioTrackFormItem {
   primaryArtist?: string;
   primaryArtistSpotifyUrl?: string;
   primaryArtistAppleMusicUrl?: string;
+  primaryArtistSpotifyProfileCreateRequested?: boolean;
+  primaryArtistAppleMusicProfileCreateRequested?: boolean;
   featuredArtists?: TrackFeaturedArtist[];
 }
 
@@ -71,6 +75,8 @@ export interface ArtistFormItem {
   name: string;
   spotifyProfileUrl: string;
   appleMusicProfileUrl: string;
+  spotifyProfileCreateRequested?: boolean;
+  appleMusicProfileCreateRequested?: boolean;
 }
 
 export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
@@ -93,7 +99,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [title, setTitle] = useState('');
   const [releaseType, setReleaseType] = useState<ReleaseType>('Single');
   const [primaryArtistsList, setPrimaryArtistsList] = useState<ArtistFormItem[]>([
-    { id: 'pa_1', name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '' },
+    { id: 'pa_1', name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
   ]);
   const [featuredArtistsList, setFeaturedArtistsList] = useState<ArtistFormItem[]>([]);
   const [genre, setGenre] = useState('Amapiano');
@@ -133,6 +139,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       primaryArtist: '',
       primaryArtistSpotifyUrl: '',
       primaryArtistAppleMusicUrl: '',
+      primaryArtistSpotifyProfileCreateRequested: false,
+      primaryArtistAppleMusicProfileCreateRequested: false,
       featuredArtists: [],
     },
   ]);
@@ -145,7 +153,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [submittedRelease, setSubmittedRelease] = useState<Release | null>(null);
 
   // Draft & Unsaved Progress State
-  const DRAFT_KEY = 'midama_release_draft_v1';
+  const DRAFT_KEY = `midama_release_draft_v2_${user?.id || 'anonymous'}`;
   const [hasDraftNotice, setHasDraftNotice] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [draftToast, setDraftToast] = useState<string | null>(null);
@@ -233,6 +241,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           primaryArtist: t.primaryArtist,
           primaryArtistSpotifyUrl: t.primaryArtistSpotifyUrl,
           primaryArtistAppleMusicUrl: t.primaryArtistAppleMusicUrl,
+          primaryArtistSpotifyProfileCreateRequested: t.primaryArtistSpotifyProfileCreateRequested,
+          primaryArtistAppleMusicProfileCreateRequested: t.primaryArtistAppleMusicProfileCreateRequested,
           featuredArtists: t.featuredArtists,
         })),
         savedAt: new Date().toISOString(),
@@ -302,7 +312,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setTitle('');
     setReleaseType('Single');
     setPrimaryArtistsList([
-      { id: 'pa_1', name: user?.name || '', spotifyProfileUrl: '', appleMusicProfileUrl: '' },
+      { id: 'pa_1', name: user?.name || '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
     ]);
     setFeaturedArtistsList([]);
     setGenre('Amapiano');
@@ -378,11 +388,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const handleAddPrimaryArtist = () => {
     setPrimaryArtistsList([
       ...primaryArtistsList,
-      { id: `pa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '' },
+      { id: `pa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
     ]);
   };
 
-  const handleUpdatePrimaryArtist = (idx: number, field: keyof ArtistFormItem, val: string) => {
+  const handleUpdatePrimaryArtist = (idx: number, field: keyof ArtistFormItem, val: any) => {
     const copy = [...primaryArtistsList];
     copy[idx] = { ...copy[idx], [field]: val };
     setPrimaryArtistsList(copy);
@@ -397,11 +407,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const handleAddFeaturedArtist = () => {
     setFeaturedArtistsList([
       ...featuredArtistsList,
-      { id: `fa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '' },
+      { id: `fa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileCreateRequested: false, spotifyProfileCreateRequested: false },
     ]);
   };
 
-  const handleUpdateFeaturedArtist = (idx: number, field: keyof ArtistFormItem, val: string) => {
+  const handleUpdateFeaturedArtist = (idx: number, field: keyof ArtistFormItem, val: any) => {
     const copy = [...featuredArtistsList];
     copy[idx] = { ...copy[idx], [field]: val };
     setFeaturedArtistsList(copy);
@@ -505,9 +515,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         return;
       }
 
-      if (width < 1000 || width > 2500) {
+      if (width < 3000 || width > 4000) {
         setArtworkValidationError(
-          `Artwork dimensions must be between 1000×1000 and 2500×2500 pixels. Current is ${width}×${height}px.`
+          `Artwork dimensions must be between 3000×3000 and 4000×4000 pixels. Current is ${width}×${height}px.`
         );
         return;
       }
@@ -565,6 +575,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         primaryArtist: primaryArtistsList[0]?.name || '',
         primaryArtistSpotifyUrl: primaryArtistsList[0]?.spotifyProfileUrl || '',
         primaryArtistAppleMusicUrl: primaryArtistsList[0]?.appleMusicProfileUrl || '',
+        primaryArtistSpotifyProfileCreateRequested: false,
+        primaryArtistAppleMusicProfileCreateRequested: false,
         featuredArtists: [],
       },
     ]);
@@ -594,20 +606,19 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setTracks(reordered);
   };
 
-  // Handle Track Audio Master Upload (MP3 only)
+  // Handle Track Audio Master Upload (WAV/FLAC only)
   const handleTrackFileChange = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Strict validation: Reject non-MP3 files
-    const isMp3 =
-      file.name.toLowerCase().endsWith('.mp3') ||
-      file.type.includes('audio/mpeg') ||
-      file.type.includes('audio/mp3');
-    if (!isMp3) {
+    // Strict validation: only lossless WAV/FLAC masters
+    const lowerName = file.name.toLowerCase();
+    const isWav = lowerName.endsWith('.wav') || file.type.includes('audio/wav') || file.type.includes('audio/x-wav');
+    const isFlac = lowerName.endsWith('.flac') || file.type.includes('audio/flac') || file.type.includes('audio/x-flac');
+    if (!isWav && !isFlac) {
       const copy = [...tracks];
       copy[index].uploadError =
-        'Invalid audio format. MP3 audio master files ONLY (.mp3). WAV/FLAC/M4A are rejected.';
+        'Invalid audio format. Only WAV and FLAC master files are accepted.';
       copy[index].uploadedSuccess = false;
       setTracks(copy);
       return;
@@ -668,11 +679,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     // Validate URLs for Primary Artists
     for (let i = 0; i < primaryArtistsList.length; i++) {
       const a = primaryArtistsList[i];
-      if (!a.spotifyProfileUrl || !isValidUrl(a.spotifyProfileUrl)) {
+      if ((!a.spotifyProfileUrl && !a.spotifyProfileCreateRequested) || (a.spotifyProfileUrl && !isValidUrl(a.spotifyProfileUrl))) {
         setSubmitError(`Spotify Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" is required and must be a valid URL.`);
         return false;
       }
-      if (!a.appleMusicProfileUrl || !isValidUrl(a.appleMusicProfileUrl)) {
+      if ((!a.appleMusicProfileUrl && !a.appleMusicProfileCreateRequested) || (a.appleMusicProfileUrl && !isValidUrl(a.appleMusicProfileUrl))) {
         setSubmitError(`Apple Music Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" is required and must be a valid URL.`);
         return false;
       }
@@ -685,11 +696,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         setSubmitError(`Please provide the name for Featured Artist #${i + 1} or remove the row.`);
         return false;
       }
-      if (!fa.spotifyProfileUrl || !isValidUrl(fa.spotifyProfileUrl)) {
+      if ((!fa.spotifyProfileUrl && !fa.spotifyProfileCreateRequested) || (fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl))) {
         setSubmitError(`Spotify Artist Profile for featured artist "${fa.name}" is required and must be a valid URL.`);
         return false;
       }
-      if (!fa.appleMusicProfileUrl || !isValidUrl(fa.appleMusicProfileUrl)) {
+      if ((!fa.appleMusicProfileUrl && !fa.appleMusicProfileCreateRequested) || (fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl))) {
         setSubmitError(`Apple Music Artist Profile for featured artist "${fa.name}" is required and must be a valid URL.`);
         return false;
       }
@@ -716,7 +727,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   // Step 2 Validation
   const validateStep2 = (): boolean => {
     if (!uploadedArtworkUrl) {
-      setArtworkValidationError('Please upload a square cover artwork image (JPG/PNG).');
+      setArtworkValidationError('Please upload a 3000×3000 to 4000×4000 square cover artwork image (JPG/PNG).');
       return false;
     }
     if (artworkValidationError) return false;
@@ -740,7 +751,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         return false;
       }
       if (!t.fileUrl) {
-        setSubmitError(`Please upload the MP3 audio master for Track #${i + 1} (${t.title || 'Untitled'}).`);
+        setSubmitError(`Please upload the WAV or FLAC audio master for Track #${i + 1} (${t.title || 'Untitled'}).`);
         return false;
       }
       if (t.uploadError) {
@@ -761,11 +772,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         }
       }
 
-      if (isEpOrAlbum && (!t.primaryArtistSpotifyUrl || !isValidUrl(t.primaryArtistSpotifyUrl))) {
+      if (isEpOrAlbum && ((!t.primaryArtistSpotifyUrl && !t.primaryArtistSpotifyProfileCreateRequested) || (t.primaryArtistSpotifyUrl && !isValidUrl(t.primaryArtistSpotifyUrl)))) {
         setSubmitError(`Track #${i + 1} Spotify Artist Profile is required and must be a valid URL.`);
         return false;
       }
-      if (isEpOrAlbum && (!t.primaryArtistAppleMusicUrl || !isValidUrl(t.primaryArtistAppleMusicUrl))) {
+      if (isEpOrAlbum && ((!t.primaryArtistAppleMusicUrl && !t.primaryArtistAppleMusicProfileCreateRequested) || (t.primaryArtistAppleMusicUrl && !isValidUrl(t.primaryArtistAppleMusicUrl)))) {
         setSubmitError(`Track #${i + 1} Apple Music Artist Profile is required and must be a valid URL.`);
         return false;
       }
@@ -778,11 +789,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             setSubmitError(`Track #${i + 1} featured artist #${faIdx + 1} requires a name.`);
             return false;
           }
-          if (isEpOrAlbum && (!fa.spotifyProfileUrl || !isValidUrl(fa.spotifyProfileUrl))) {
+          if (isEpOrAlbum && ((!fa.spotifyProfileUrl && !fa.spotifyProfileCreateRequested) || (fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl)))) {
             setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Spotify Artist Profile is required and must be a valid URL.`);
             return false;
           }
-          if (isEpOrAlbum && (!fa.appleMusicProfileUrl || !isValidUrl(fa.appleMusicProfileUrl))) {
+          if (isEpOrAlbum && ((!fa.appleMusicProfileUrl && !fa.appleMusicProfileCreateRequested) || (fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl)))) {
             setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Apple Music Artist Profile is required and must be a valid URL.`);
             return false;
           }
@@ -822,6 +833,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'primary',
           spotifyProfileUrl: a.spotifyProfileUrl.trim() || undefined,
           appleMusicProfileUrl: a.appleMusicProfileUrl.trim() || undefined,
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const featuredArtistProfiles: ArtistCredit[] = featuredArtistsList
@@ -831,6 +844,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'featured',
           spotifyProfileUrl: a.spotifyProfileUrl.trim() || undefined,
           appleMusicProfileUrl: a.appleMusicProfileUrl.trim() || undefined,
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const finalTracks = tracks.map((t, idx) => {
@@ -845,6 +860,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'featured' as const,
             spotifyProfileUrl: fa.spotifyProfileUrl?.trim() || undefined,
             appleMusicProfileUrl: fa.appleMusicProfileUrl?.trim() || undefined,
+            spotifyProfileCreateRequested: !!fa.spotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!fa.appleMusicProfileCreateRequested,
           }));
 
         const trackArtistProfiles: ArtistCredit[] = [
@@ -853,6 +870,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'primary',
             spotifyProfileUrl: trackSpotify || undefined,
             appleMusicProfileUrl: trackApple || undefined,
+            spotifyProfileCreateRequested: !!t.primaryArtistSpotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!t.primaryArtistAppleMusicProfileCreateRequested,
           },
           ...songFeaturedProfiles,
         ];
@@ -862,7 +881,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           trackNumber: idx + 1,
           title: t.title.trim(),
           version: t.version || 'Original Mix',
-          filename: t.filename || `track_${idx + 1}.mp3`,
+          filename: t.filename || `track_${idx + 1}.wav`,
           storedFilename: t.storedFilename,
           fileUrl: t.fileUrl!,
           fileSize: t.fileSize || 0,
@@ -993,7 +1012,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             {[
               { num: 1, label: 'Metadata & Credits' },
               { num: 2, label: 'Cover Artwork' },
-              { num: 3, label: 'Audio Masters (MP3)' },
+              { num: 3, label: 'Audio Masters (WAV / FLAC)' },
               { num: 4, label: 'Final Review & Submit' },
             ].map((s) => (
               <div
@@ -1078,7 +1097,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                 </div>
                 <div className="flex justify-between items-center text-neutral-400">
                   <span>Master Audio Tracks:</span>
-                  <span className="text-neutral-200">{submittedRelease.tracks.length} MP3 track(s)</span>
+                  <span className="text-neutral-200">{submittedRelease.tracks.length} lossless track(s)</span>
                 </div>
                 <div className="flex justify-between items-center text-neutral-400">
                   <span>Target Release Date:</span>
@@ -1141,7 +1160,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           {releaseType === 'EP' ? 'Episode / EP' : 'Album'} Artist Workflow:
                         </strong>
                         <span>
-                          Step 1: Enter your Primary Artist and their DSP profile links below. In Step 3, you will configure individual artist credits and DSP links for each song.
+                          Step 1: Enter the release title, rights information, primary/secondary artists, composers and producers. For EPs and Albums, Step 3 lets you assign artists and their DSP profiles per track.
                         </span>
                       </div>
                     </div>
@@ -1153,16 +1172,14 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                       <label className="block text-xs font-semibold text-neutral-300">
                         Primary Artist <span className="text-red-500">*</span>
                       </label>
-                      {primaryArtistsList.length > 1 && (
-                        <button
+                      <button
                           type="button"
                           onClick={handleAddPrimaryArtist}
                           className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 font-semibold cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Add Co-Primary Artist</span>
+                          <span>Add Artist</span>
                         </button>
-                      )}
                     </div>
 
                     {primaryArtistsList.map((artist, idx) => (
@@ -1214,6 +1231,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               placeholder="https://open.spotify.com/artist/..."
                               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
                             />
+                            <button type="button" onClick={() => { handleUpdatePrimaryArtist(idx, 'spotifyProfileCreateRequested' as any, true); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Spotify profile? Open Spotify for Artists</button>
                           </div>
 
                           <div>
@@ -1229,6 +1247,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               placeholder="https://music.apple.com/.../artist/..."
                               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
                             />
+                            <button type="button" onClick={() => { handleUpdatePrimaryArtist(idx, 'appleMusicProfileCreateRequested' as any, true); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Apple Music profile? Open Apple Music for Artists</button>
                           </div>
                         </div>
                       </div>
@@ -1525,7 +1544,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                       Cover Artwork Upload (Square JPG/JPEG or PNG)
                     </h3>
                     <p className="text-xs text-neutral-400">
-                      Must be an actual square image with minimum 1000×1000 and maximum 2500×2500 pixels.
+                      Must be an actual square image between 3000×3000 and 4000×4000 pixels.
                     </p>
                   </div>
 
@@ -1614,12 +1633,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-bold text-white mb-0.5 font-['Space_Grotesk']">
-                        Master Audio Track Upload (MP3 Format Only)
+                        Master Audio Track Upload (WAV / FLAC Only)
                       </h3>
                       <p className="text-xs text-neutral-400">
                         {releaseType === 'EP' || releaseType === 'Album'
-                          ? 'For Episode / Album releases, specify artist information and MP3 audio master for every song.'
-                          : 'Upload your MP3 audio master file (.mp3). WAV, FLAC, and M4A are rejected.'}
+                          ? 'For Episode / Album releases, specify artist information and a lossless audio master for every song.'
+                          : 'Upload your lossless WAV or FLAC audio master file.'}
                       </p>
                     </div>
 
@@ -1726,6 +1745,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           </div>
                         </div>
 
+                        {(releaseType === 'EP' || releaseType === 'Album') && (<>
                         {/* Per-Song Artist Metadata (Required for EP & Album releases, customizable for all) */}
                         <div className="p-3 bg-neutral-950/60 border border-neutral-800/80 rounded-xl space-y-3">
                           <div className="flex items-center justify-between">
@@ -1787,6 +1807,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 placeholder="https://open.spotify.com/artist/..."
                                 className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
                               />
+                              <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].primaryArtistSpotifyProfileCreateRequested=true; setTracks(copy); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Spotify profile? Open Spotify for Artists</button>
                             </div>
 
                             <div>
@@ -1804,6 +1825,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 placeholder="https://music.apple.com/.../artist/..."
                                 className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
                               />
+                              <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].primaryArtistAppleMusicProfileCreateRequested=true; setTracks(copy); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[10px] text-red-400 hover:text-red-300">No Apple Music profile? Open Apple Music for Artists</button>
                             </div>
                           </div>
 
@@ -1849,6 +1871,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                       placeholder="Spotify Artist Profile"
                                       className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
                                     />
+                                    <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].featuredArtists![faIdx].spotifyProfileCreateRequested=true; setTracks(copy); window.open('https://artists.spotify.com/en/get-started', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[9px] text-red-400 hover:text-red-300">Create Spotify profile</button>
                                   </div>
                                   <div className="sm:col-span-3">
                                     <input
@@ -1865,6 +1888,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                       placeholder="Apple Music Profile"
                                       className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600 font-mono"
                                     />
+                                    <button type="button" onClick={() => { const copy=[...tracks]; copy[idx].featuredArtists![faIdx].appleMusicProfileCreateRequested=true; setTracks(copy); window.open('https://artists.apple.com/', '_blank', 'noopener,noreferrer'); }} className="mt-1 text-[9px] text-red-400 hover:text-red-300">Create Apple Music profile</button>
                                   </div>
                                   <div className="sm:col-span-1 text-right">
                                     <button
@@ -1882,16 +1906,18 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           )}
                         </div>
 
+                          </>)}
+
                         {/* Dedicated Master Audio Upload Area */}
                         <div>
                           <label className="block text-[11px] font-semibold text-neutral-300 mb-1.5 flex items-center justify-between">
                             <span className="flex items-center gap-1.5">
                               <Music className="w-3.5 h-3.5 text-red-500" />
-                              <span>Master Audio Track (.mp3 format only)</span>
+                              <span>Master Audio Track (.wav or .flac only)</span>
                               <span className="text-red-500">*</span>
                             </span>
                             <span className="text-[10px] font-mono text-neutral-500">
-                              Constant Bitrate 320kbps · Max 100MB
+                              Lossless WAV / FLAC · Max 500MB
                             </span>
                           </label>
 
@@ -1904,15 +1930,15 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 <span className="text-xs font-bold text-white block group-hover:text-red-400 transition-colors">
                                   {track.filename
                                     ? `Selected: ${track.filename}`
-                                    : 'Click to select or drop MP3 audio file'}
+                                    : 'Click to select or drop WAV / FLAC audio file'}
                                 </span>
                                 <span className="text-[11px] text-neutral-400 block mt-0.5">
-                                  Only .mp3 master audio files are accepted. WAV, FLAC, and M4A are rejected.
+                                  Only .wav and .flac master audio files are accepted.
                                 </span>
                               </div>
                               <input
                                 type="file"
-                                accept=".mp3,audio/mpeg,audio/mp3"
+                                accept=".wav,.flac,audio/wav,audio/flac"
                                 onChange={(e) => handleTrackFileChange(idx, e)}
                                 className="hidden"
                               />
@@ -1923,7 +1949,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-950 border border-emerald-800 text-emerald-300 text-xs font-semibold rounded-md shrink-0">
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>MP3 Ready</span>
+                                    <span>Lossless Audio Ready</span>
                                   </span>
                                   <span className="text-xs font-mono text-neutral-200 truncate">
                                     {track.filename}
@@ -1933,7 +1959,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                   <span>Replace</span>
                                   <input
                                     type="file"
-                                    accept=".mp3,audio/mpeg,audio/mp3"
+                                    accept=".wav,.flac,audio/wav,audio/flac"
                                     onChange={(e) => handleTrackFileChange(idx, e)}
                                     className="hidden"
                                   />
@@ -1955,7 +1981,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           {track.uploading && (
                             <div className="text-xs text-amber-400 font-mono flex items-center gap-2 animate-pulse">
                               <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                              <span>Uploading MP3 file to server...</span>
+                              <span>Uploading lossless audio file to server...</span>
                             </div>
                           )}
 
@@ -1964,7 +1990,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               <div className="flex items-center justify-between text-xs">
                                 <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>MP3 audio master uploaded successfully</span>
+                                  <span>Lossless audio master uploaded successfully</span>
                                 </span>
                                 <button
                                   type="button"
@@ -2070,7 +2096,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
                       <div>
                         <span className="text-[10px] font-mono text-neutral-500 uppercase block">
-                          Tracklist ({tracks.length} MP3 audio master(s))
+                          Tracklist ({tracks.length} lossless audio master(s))
                         </span>
                         <ul className="text-neutral-300 space-y-1 pt-1 max-h-36 overflow-y-auto">
                           {tracks.map((t, idx) => (
@@ -2120,7 +2146,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         className="mt-0.5 rounded border-neutral-800 text-red-600 cursor-pointer"
                       />
                       <label htmlFor="confirmAccuracy" className="text-xs text-neutral-200 cursor-pointer">
-                        <strong>I hereby certify and confirm:</strong> All audio files are finalized 320kbps MP3
+                        <strong>I hereby certify and confirm:</strong> All audio files are finalized lossless WAV or FLAC masters
                         masters, cover artwork is square 1:1 original art, artist links are accurate, and I own
                         or control 100% of the distribution and master rights.
                       </label>

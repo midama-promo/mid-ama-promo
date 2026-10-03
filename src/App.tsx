@@ -12,6 +12,7 @@ import { Requirements } from './components/public/Requirements';
 import { QualityControl } from './components/public/QualityControl';
 import { AmapianoFocus } from './components/public/AmapianoFocus';
 import { ContactSection } from './components/public/ContactSection';
+import { Policies } from './components/public/Policies';
 import { Footer } from './components/public/Footer';
 
 // Modals & Dashboards
@@ -197,7 +198,7 @@ function MainContent() {
         {/* Navigation bar */}
         <Navbar
           onOpenSignIn={() => openAuth('signin')}
-          onOpenCreatePassword={() => openAuth('create-password')}
+          onOpenRegister={() => openAuth('register')}
           onOpenGetStarted={() => {
             if (user) {
               setCurrentView(user.role === 'admin' ? 'admin' : 'client');
@@ -253,6 +254,9 @@ function MainContent() {
         {/* Amapiano & Afro independent artist focus */}
         <AmapianoFocus />
 
+        {/* Public Policies */}
+        <Policies />
+
         {/* Contact / Enquiries Form */}
         <ContactSection />
       </div>
@@ -260,7 +264,7 @@ function MainContent() {
       {/* Professional Footer */}
       <Footer
         onOpenSignIn={() => openAuth('signin')}
-        onOpenCreatePassword={() => openAuth('create-password')}
+        onOpenRegister={() => openAuth('register')}
         onOpenGetStarted={() => {
           if (user) {
             setCurrentView(user.role === 'admin' ? 'admin' : 'client');

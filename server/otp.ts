@@ -33,12 +33,12 @@ function getServerClient(): SupabaseClient {
  * Request an email OTP using Supabase Auth signInWithOtp with shouldCreateUser: false.
  * Only pre-existing registered users will be sent an OTP code.
  */
-export async function requestEmailOtp(email: string): Promise<void> {
+export async function requestEmailOtp(email: string, shouldCreateUser = false): Promise<void> {
   const client = getServerClient();
   const { error } = await client.auth.signInWithOtp({
     email: email.trim().toLowerCase(),
     options: {
-      shouldCreateUser: false,
+      shouldCreateUser,
     },
   });
 

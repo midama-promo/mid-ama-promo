@@ -115,7 +115,7 @@ export const Hero: React.FC<HeroProps> = ({
             </div>
             <div className="p-4 bg-neutral-900/40 border border-neutral-800/80 rounded-xl">
               <Music className="w-5 h-5 text-red-500 mx-auto mb-2" />
-              <h4 className="text-xs font-bold text-white font-['Space_Grotesk'] uppercase tracking-wider">MP3 Masters & Square Artwork</h4>
+              <h4 className="text-xs font-bold text-white font-['Space_Grotesk'] uppercase tracking-wider">Lossless Masters & Square Artwork</h4>
               <p className="text-[11px] text-neutral-400 mt-1">Strict audio master validation and high-resolution cover preview</p>
             </div>
             <div className="p-4 bg-neutral-900/40 border border-neutral-800/80 rounded-xl">

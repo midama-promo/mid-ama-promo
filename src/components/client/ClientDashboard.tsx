@@ -96,6 +96,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const handleStatusUpdated = (e: Event) => {
+      const updated = (e as CustomEvent<Release>).detail;
+      if (updated?.id) setReleases(prev => prev.map(r => r.id === updated.id ? updated : r));
+    };
+    window.addEventListener('midama:release-status-updated', handleStatusUpdated);
+    return () => window.removeEventListener('midama:release-status-updated', handleStatusUpdated);
+  }, []);
+
   // When a release is newly submitted, immediately show it without requiring a browser refresh
   useEffect(() => {
     if (newlyCreatedRelease) {
@@ -129,6 +138,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
         return 'text-red-400 bg-red-950/40 border-red-800/80';
       case 'Corrections Required':
         return 'text-orange-400 bg-orange-950/40 border-orange-800/80';
+      case 'Takedown Requested':
+        return 'text-amber-300 bg-amber-950/40 border-amber-700/80';
+      case 'Takedown Processing':
+        return 'text-orange-300 bg-orange-950/40 border-orange-700/80';
+      case 'Takedown Completed':
+        return 'text-blue-300 bg-blue-950/40 border-blue-700/80';
       default:
         return 'text-neutral-300 bg-neutral-900 border-neutral-800';
     }
@@ -184,6 +199,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span>Royalty Dashboard</span>
               <ExternalLink className="w-3 h-3 text-neutral-500" />
+            </a>
+
+            <a href="mailto:midnightamapiano@yahoo.com?subject=Mid-Ama%20Promo%20Query" className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold rounded-xl transition-colors" title="Contact Mid-Ama Promo">
+              <MessageSquare className="w-3.5 h-3.5 text-red-400" />
+              <span>Make a Query</span>
             </a>
 
             <button

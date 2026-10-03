@@ -218,7 +218,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               </>
             )}
           </button>
-          <span className="text-[11px] text-neutral-400 font-mono ml-2">320kbps MP3</span>
+          <span className="text-[11px] text-neutral-400 font-mono ml-2">Lossless WAV / FLAC</span>
         </div>
 
         {/* Volume */}

@@ -58,6 +58,13 @@ class ApiService {
     });
   }
 
+  async registerArtist(payload: { realFirstName: string; realSurname: string; artistName: string; email: string }): Promise<{ message: string; email: string }> {
+    return this.request<{ message: string; email: string }>('/api/auth/register-artist', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async verifyLoginOtp(email: string, code?: string, accessToken?: string): Promise<{ token: string; user: User }> {
     const data = await this.request<{ token: string; user: User }>('/api/auth/verify-otp', {
       method: 'POST',
@@ -197,6 +204,14 @@ class ApiService {
     });
   }
 
+  async requestTakedown(id: string): Promise<{ message: string; release: Release }> {
+    return this.request<{ message: string; release: Release }>(`/api/releases/${id}/takedown-request`, { method: 'POST' });
+  }
+
+  async processTakedown(id: string, status: 'Takedown Processing' | 'Takedown Completed', note?: string): Promise<{ message: string; release: Release }> {
+    return this.request<{ message: string; release: Release }>(`/api/releases/${id}/takedown-process`, { method: 'POST', body: JSON.stringify({ status, note }) });
+  }
+
   // Generate a temporary signed download ticket (for authorized admin or release owner)
   async createSignedDownloadTicket(
     releaseId: string,
@@ -311,6 +326,13 @@ class ApiService {
     return `/api/releases/${releaseId}/download-document`;
   }
 
+  async createClientEnquiry(payload: { subject: string; message: string }): Promise<{ message: string; enquiry: Enquiry }> {
+    return this.request<{ message: string; enquiry: Enquiry }>('/api/enquiries', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getPublicShareRelease(refNumber: string): Promise<{ release: any }> {
     return this.request<{ release: any }>(`/api/public/share/${refNumber}`);
   }
@@ -324,7 +346,7 @@ class ApiService {
     return this.request<{ clients: User[] }>('/api/admin/clients');
   }
 
-  async registerClient(payload: { email: string; name: string; password?: string; phone?: string; country?: string }): Promise<{ message: string; client: User }> {
+  async registerClient(payload: { email: string; name: string; phone?: string; country?: string }): Promise<{ message: string; client: User }> {
     return this.request<{ message: string; client: User }>('/api/admin/clients/register', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -335,13 +357,6 @@ class ApiService {
     return this.request<{ message: string; client: User }>(`/api/admin/clients/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    });
-  }
-
-  async adminSetClientPassword(clientId: string, password: string): Promise<{ message: string; client: User }> {
-    return this.request<{ message: string; client: User }>(`/api/admin/clients/${clientId}/password`, {
-      method: 'POST',
-      body: JSON.stringify({ password }),
     });
   }
 

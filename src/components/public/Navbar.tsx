@@ -5,7 +5,7 @@ import { User, LogIn, UploadCloud, Menu, X, Shield, Bell, Disc3 } from 'lucide-r
 
 interface NavbarProps {
   onOpenSignIn: () => void;
-  onOpenCreatePassword?: () => void;
+  onOpenRegister?: () => void;
   onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onGoToDashboard: () => void;
@@ -14,7 +14,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenSignIn,
-  onOpenCreatePassword,
+  onOpenRegister,
   onOpenGetStarted,
   onOpenContact,
   onGoToDashboard,
@@ -132,14 +132,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>Sign In</span>
                 </button>
 
-                {onOpenCreatePassword && (
-                  <button
-                    onClick={onOpenCreatePassword}
-                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-400 hover:text-red-400 transition-colors"
-                    title="First time registered client? Set your password here"
-                  >
-                    <span>Client Login</span>
-                  </button>
+                {onOpenRegister && (
+                  <button onClick={onOpenRegister} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-300 hover:text-white transition-colors">Register Artist</button>
                 )}
 
                 <button
@@ -238,15 +232,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <LogIn className="w-4 h-4" />
                   Sign In
                 </button>
-                {onOpenCreatePassword && (
-                  <button
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      onOpenCreatePassword();
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white rounded-lg text-xs font-semibold"
-                  >
-                    Client Login
+                {onOpenRegister && (
+                  <button onClick={() => { setMobileMenuOpen(false); onOpenRegister(); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white rounded-lg text-xs font-semibold">
+                    Register Artist
                   </button>
                 )}
                 <button

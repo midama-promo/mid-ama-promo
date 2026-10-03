@@ -12,7 +12,6 @@ import {
   LogOut,
   UserPlus,
   Send,
-  Lock,
   Copy,
   Check,
   ExternalLink,
@@ -22,7 +21,6 @@ import {
   Mail,
   Bell,
   Download,
-  KeyRound,
   XCircle,
   RotateCcw,
   FolderOpen,
@@ -83,20 +81,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regCountry, setRegCountry] = useState('South Africa');
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [copiedInstructions, setCopiedInstructions] = useState(false);
-  const [regSuccessResult, setRegSuccessResult] = useState<{
-    client: User;
-    temporaryPassword?: string;
-  } | null>(null);
-
-  // Admin Direct Password Reset Modal
-  const [clientToSetPassword, setClientToSetPassword] = useState<User | null>(null);
-  const [newPasswordForClient, setNewPasswordForClient] = useState('');
-  const [settingPasswordSubmitting, setSettingPasswordSubmitting] = useState(false);
+  const [regSuccessResult, setRegSuccessResult] = useState<{ client: User } | null>(null);
 
   // Asset download state
   const [downloadingArtworkId, setDownloadingArtworkId] = useState<string | null>(null);
@@ -294,46 +283,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const res = await api.registerClient({
         email: regEmail.trim(),
         name: regName.trim(),
-        password: regPassword.trim() || undefined,
         phone: regPhone.trim() || undefined,
         country: regCountry.trim() || 'South Africa',
       });
 
       setRegSuccessResult({
         client: res.client,
-        temporaryPassword: regPassword.trim() || undefined,
       });
 
       setClients([res.client, ...clients]);
       setRegName('');
       setRegEmail('');
-      setRegPassword('');
       setRegPhone('');
     } catch (err: any) {
       alert(err.message || 'Failed to register client.');
     } finally {
       setRegSubmitting(false);
-    }
-  };
-
-  const handleAdminSetPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!clientToSetPassword || newPasswordForClient.length < 6) {
-      alert('Password must be at least 6 characters long.');
-      return;
-    }
-
-    try {
-      setSettingPasswordSubmitting(true);
-      const res = await api.adminSetClientPassword(clientToSetPassword.id, newPasswordForClient);
-      setClients(clients.map(c => c.id === clientToSetPassword.id ? res.client : c));
-      alert(`Password successfully updated for ${clientToSetPassword.name}`);
-      setClientToSetPassword(null);
-      setNewPasswordForClient('');
-    } catch (err: any) {
-      alert(err.message || 'Failed to update client password.');
-    } finally {
-      setSettingPasswordSubmitting(false);
     }
   };
 
@@ -347,6 +312,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return 'text-red-400 bg-red-950/40 border-red-800/80';
       case 'Corrections Required':
         return 'text-orange-400 bg-orange-950/40 border-orange-800/80';
+      case 'Takedown Requested':
+        return 'text-amber-300 bg-amber-950/40 border-amber-700/80';
+      case 'Takedown Processing':
+        return 'text-orange-300 bg-orange-950/40 border-orange-700/80';
+      case 'Takedown Completed':
+        return 'text-blue-300 bg-blue-950/40 border-blue-700/80';
       default:
         return 'text-neutral-300 bg-neutral-900 border-neutral-800';
     }
@@ -598,7 +569,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-xs text-neutral-400 font-mono flex items-center gap-1 shrink-0">
                   <Filter className="w-3.5 h-3.5" /> Status:
                 </span>
-                {['All', 'Pending Review', 'Approved', 'Corrections Required', 'Denied'].map((st) => (
+                {['All', 'Pending Review', 'Approved', 'Corrections Required', 'Takedown Requested', 'Takedown Processing', 'Takedown Completed', 'Denied'].map((st) => (
                   <button
                     key={st}
                     onClick={() => setStatusFilter(st)}
@@ -634,7 +605,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   No Releases Submitted Yet
                 </h3>
                 <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                  When registered clients submit releases through their portal accounts, they will appear here with master MP3s, cover artwork, and review controls.
+                  When registered clients submit releases through their portal accounts, they will appear here with lossless masters, cover artwork, and review controls.
                 </p>
               </div>
             ) : filteredReleases.length === 0 ? (
@@ -695,7 +666,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="py-3.5 px-4">
                             <span className="text-neutral-300 block">{rel.genre}</span>
                             <span className="text-[10px] text-neutral-500 font-mono block">
-                              {rel.releaseType} · {rel.tracks.length} MP3 track(s)
+                              {rel.releaseType} · {rel.tracks.length} lossless track(s)
                             </span>
                           </td>
 
@@ -833,11 +804,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   : 'text-red-400 bg-red-950/40 border-red-800'
                               }`}
                             >
-                              {c.status === 'active'
-                                ? 'Active (Password Set)'
-                                : c.status === 'pending_activation'
-                                ? 'Ready (Awaiting Password)'
-                                : 'Disabled'}
+                              {c.status === 'active' ? 'Active' : 'Disabled'}
                             </span>
                           </td>
 
@@ -872,18 +839,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <Eye className="w-3 h-3" />
                                 )}
                                 <span>Access Client Account</span>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setClientToSetPassword(c);
-                                  setNewPasswordForClient('');
-                                }}
-                                className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] rounded flex items-center gap-1 font-semibold transition-colors"
-                                title="Set or reset client password"
-                              >
-                                <Lock className="w-3 h-3 text-red-400" />
-                                <span>Set Password</span>
                               </button>
 
                               <button
@@ -1045,7 +1000,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ) : (
               <form onSubmit={handleManualRegisterSubmit} className="space-y-4">
                 <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-neutral-300">
-                  Register the client's email. They will sign in via <strong>Email OTP</strong> using a single-use code — no passwords required.
+                  Register the client's email. They will sign in via <strong>Email OTP</strong> using a single-use code — no password is required.
                 </div>
 
                 <div>
@@ -1104,141 +1059,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* MODAL: ADMIN SET / RESET CLIENT PASSWORD */}
-      {clientToSetPassword && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-md bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl p-6 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-white font-['Space_Grotesk'] flex items-center gap-2">
-                <Lock className="w-5 h-5 text-red-500" />
-                <span>Set Password for Client</span>
-              </h3>
-              <button
-                onClick={() => setClientToSetPassword(null)}
-                className="text-neutral-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-xs text-neutral-400 mb-4">
-              Directly assign or update the password for <strong className="text-white">{clientToSetPassword.name}</strong> ({clientToSetPassword.email}).
-            </p>
-
-            <form onSubmit={handleAdminSetPasswordSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                  New Password (min 6 characters)
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newPasswordForClient}
-                  onChange={(e) => setNewPasswordForClient(e.target.value)}
-                  placeholder="Enter new password"
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600 font-mono"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setClientToSetPassword(null)}
-                  className="flex-1 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={settingPasswordSubmitting || newPasswordForClient.length < 6}
-                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow"
-                >
-                  {settingPasswordSubmitting ? 'Saving...' : 'Save Password'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {preSaveRelease && (
-        <div className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !preSaveSaving && setPreSaveRelease(null)}>
-          <div className="w-full max-w-lg bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-neutral-800 flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-white font-bold">
-                  <Link2 className="w-4 h-4 text-red-500" />
-                  Pre-save Links
-                </div>
-                <p className="text-[11px] text-neutral-500 mt-1">{preSaveRelease.title} · {preSaveRelease.refNumber}</p>
-              </div>
-              <button type="button" onClick={() => !preSaveSaving && setPreSaveRelease(null)} className="p-2 text-neutral-500 hover:text-white rounded-lg hover:bg-neutral-900">
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-5">
-              <div className="space-y-3">
-                {(preSaveRelease.preSaveLinks || []).length === 0 ? (
-                  <div className="p-4 rounded-xl bg-neutral-900/60 border border-dashed border-neutral-800 text-xs text-neutral-500 text-center">
-                    No pre-save links have been added yet.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {(preSaveRelease.preSaveLinks || []).map(link => (
-                      <div key={link.id} className="flex items-center gap-3 p-3 rounded-xl bg-neutral-900 border border-neutral-800">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-white truncate">{link.label}</p>
-                          <p className="text-[10px] text-neutral-500 truncate">{link.url}</p>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={preSaveSaving}
-                          onClick={() => handleRemovePreSaveLink(link.id)}
-                          className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg disabled:opacity-40"
-                          title="Remove link"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-neutral-800 pt-5 space-y-3">
-                <div>
-                  <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500 block mb-1.5">Button / Platform Label</label>
-                  <input value={preSaveLabel} onChange={e => setPreSaveLabel(e.target.value)} placeholder="Pre-save" className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-red-600" maxLength={80} />
-                </div>
-                <div>
-                  <label className="text-[10px] font-mono uppercase tracking-wider text-neutral-500 block mb-1.5">Pre-save URL</label>
-                  <input value={preSaveUrl} onChange={e => setPreSaveUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAddPreSaveLink(); }} placeholder="https://..." type="url" className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-red-600" maxLength={2000} />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddPreSaveLink}
-                  disabled={preSaveSaving || !preSaveUrl.trim()}
-                  className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  {preSaveSaving ? 'Saving...' : 'Add Pre-save Link'}
-                </button>
-                <p className="text-[10px] text-neutral-600">Only approved/completed releases can have pre-save links. Clients will see these links on their own dashboard below the release.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <CatalogueEntryModal
-        isOpen={catalogueModalOpen}
-        clients={clients}
-        entry={editingCatalogueEntry}
-        initialClientId={catalogueClientId}
-        onClose={() => { setCatalogueModalOpen(false); setEditingCatalogueEntry(null); }}
-        onSaved={handleCatalogueSaved}
-      />
     </div>
   );
 };

@@ -105,6 +105,12 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
         return 'text-red-400 bg-red-950/40 border-red-800/80';
       case 'Corrections Required':
         return 'text-orange-400 bg-orange-950/40 border-orange-800/80';
+      case 'Takedown Requested':
+        return 'text-amber-300 bg-amber-950/40 border-amber-700/80';
+      case 'Takedown Processing':
+        return 'text-orange-300 bg-orange-950/40 border-orange-700/80';
+      case 'Takedown Completed':
+        return 'text-blue-300 bg-blue-950/40 border-blue-700/80';
       default:
         return 'text-neutral-300 bg-neutral-900 border-neutral-800';
     }
@@ -475,7 +481,7 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white font-['Space_Grotesk'] flex items-center gap-2">
                 <Music className="w-4 h-4 text-red-500" />
-                <span>Uploaded Master MP3 Tracks ({release.tracks.length})</span>
+                <span>Uploaded Lossless Master Tracks ({release.tracks.length})</span>
               </h3>
               <span className="text-xs font-mono text-neutral-400">Audio Preview & Downloads</span>
             </div>
@@ -490,7 +496,7 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
               />
             )}
 
-            {/* Tracklist table with individual MP3 download buttons */}
+            {/* Tracklist table with individual lossless download buttons */}
             <div className="bg-neutral-900/40 border border-neutral-800 rounded-xl divide-y divide-neutral-800/80 overflow-hidden">
               {release.tracks.map((t, idx) => (
                 <div
@@ -518,7 +524,7 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3 text-xs">
-                    {/* Individual MP3 Download Button */}
+                    {/* Individual Master Download Button */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -527,14 +533,14 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
                       }}
                       disabled={downloadingAsset === t.id}
                       className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-600 text-neutral-200 hover:text-white text-[11px] font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                      title="Download MP3 master audio"
+                      title="Download lossless master audio"
                     >
                       {downloadingAsset === t.id ? (
                         <div className="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <Download className="w-3 h-3 text-red-500" />
                       )}
-                      <span>{downloadingAsset === t.id ? 'Securing...' : 'Download MP3'}</span>
+                      <span>{downloadingAsset === t.id ? 'Securing...' : 'Download Master'}</span>
                     </button>
 
                     <button
@@ -548,6 +554,23 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
               ))}
             </div>
           </div>
+
+          {!isAdmin && (
+            <div className="pt-5 border-t border-neutral-800 space-y-3">
+              <div>
+                <h4 className="text-sm font-bold text-white">Takedown Request</h4>
+                <p className="text-xs text-neutral-500 mt-1">You may request removal of this release. A request made within 30 days of the release date carries a $2.50 processing fee.</p>
+              </div>
+              {release.status === 'Takedown Requested' || release.status === 'Takedown Processing' || release.status === 'Takedown Completed' ? (
+                <div className="p-3 bg-amber-950/30 border border-amber-800/60 rounded-xl text-xs text-amber-300">Takedown status: <strong>{release.status}</strong></div>
+              ) : (
+                <button type="button" disabled={actionLoading || release.status === 'Denied'} onClick={async () => {
+                  if (!window.confirm('Submit a takedown request for this release?')) return;
+                  try { setActionLoading(true); const res = await api.requestTakedown(release.id); setStatusMessage('Takedown request submitted.'); if (onStatusUpdated) onStatusUpdated(res.release); } catch (err:any) { alert(err.message || 'Could not submit takedown request.'); } finally { setActionLoading(false); }
+                }} className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-red-900/60 text-red-300 rounded-xl text-xs font-bold">Request Takedown</button>
+              )}
+            </div>
+          )}
 
           {/* ADMIN APPROVE / DENY / CORRECTIONS WORKFLOW CONTROLS */}
           {isAdmin && (
@@ -605,6 +628,15 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Takedown controls */}
+              {['Takedown Requested','Takedown Processing'].includes(release.status) && (
+                <div className="p-3.5 bg-amber-950/20 border border-amber-900/50 rounded-xl flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-amber-300 mr-auto">Takedown requested by client. Update the processing status here.</span>
+                  {release.status === 'Takedown Requested' && <button type="button" disabled={actionLoading} onClick={async()=>{ try { setActionLoading(true); const res=await api.processTakedown(release.id,'Takedown Processing','Takedown request is being processed.'); setStatusMessage('Takedown is now processing.'); if(onStatusUpdated) onStatusUpdated(res.release); } catch(err:any){alert(err.message||'Could not update takedown.');} finally{setActionLoading(false);} }} className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold">Mark Processing</button>}
+                  <button type="button" disabled={actionLoading} onClick={async()=>{ try { setActionLoading(true); const res=await api.processTakedown(release.id,'Takedown Completed','Takedown marked completed by administration.'); setStatusMessage('Takedown marked completed.'); if(onStatusUpdated) onStatusUpdated(res.release); } catch(err:any){alert(err.message||'Could not complete takedown.');} finally{setActionLoading(false);} }} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold">Mark Completed</button>
+                </div>
+              )}
 
               {/* Primary Decision Action Buttons */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

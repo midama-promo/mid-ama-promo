@@ -26,7 +26,7 @@ import type {
   ReleaseDocumentItem,
   CatalogueEntry,
 } from './db.ts';
-import { sendNotification, sendAdminReleaseEmail } from './mailer.ts';
+import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp, verifyAccessToken, isSupabaseConfigured } from './otp.ts';
 import {
   remotePersistenceConfigured,
@@ -38,6 +38,7 @@ import {
   remoteCreateAuthUser,
   remoteFindAuthUserByEmail,
   remoteUpdateAuthUser,
+  remoteDeleteAuthUser,
   remoteCheckDatabase,
   remoteCheckStorage,
   remoteCheckAuth,
@@ -92,7 +93,7 @@ const artworkStorage = multer.diskStorage({
   }
 });
 
-// Multer storage for audio (MP3 only)
+// Multer storage for audio masters (WAV/FLAC only)
 const audioStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, AUDIO_DIR),
   filename: (_req, file, cb) => {
@@ -141,15 +142,13 @@ const uploadArtwork = multer({
 
 const uploadAudio = multer({
   storage: audioStorage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB per track
+  limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const isMp3Mime = file.mimetype === 'audio/mpeg' || file.mimetype === 'audio/mp3' || file.mimetype === 'audio/x-mp3';
-    const isMp3Ext = file.originalname.toLowerCase().endsWith('.mp3');
-    if (isMp3Mime || isMp3Ext) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid audio format. MP3 audio master files ONLY (.mp3). WAV, FLAC, M4A are rejected.'));
-    }
+    const name = file.originalname.toLowerCase();
+    const isWav = name.endsWith('.wav') || file.mimetype === 'audio/wav' || file.mimetype === 'audio/x-wav';
+    const isFlac = name.endsWith('.flac') || file.mimetype === 'audio/flac' || file.mimetype === 'audio/x-flac';
+    if (isWav || isFlac) cb(null, true);
+    else cb(new Error('Invalid audio format. Only WAV and FLAC master files are accepted.'));
   }
 });
 
@@ -277,6 +276,30 @@ apiRouter.post('/auth/request-otp', async (req: Request, res: Response) => {
   });
 });
 
+apiRouter.post('/auth/register-artist', async (req: Request, res: Response) => {
+  const email = normalizeAuthEmail(req.body?.email);
+  const realFirstName = typeof req.body?.realFirstName === 'string' ? req.body.realFirstName.trim() : '';
+  const realSurname = typeof req.body?.realSurname === 'string' ? req.body.realSurname.trim() : '';
+  const artistName = typeof req.body?.artistName === 'string' ? req.body.artistName.trim() : '';
+  if (!email || !/^\S+@\S+\.\S+$/.test(email) || !realFirstName || !realSurname || !artistName) {
+    return res.status(400).json({ error: 'Real first name, surname, artist name, and a valid email are required.' });
+  }
+  if (db.findUserByEmail(email)) return res.status(409).json({ error: 'An account with this email already exists. Please sign in using OTP.' });
+  if (!remotePersistenceConfigured) return res.status(503).json({ error: 'Artist registration is temporarily unavailable because production authentication is not configured.' });
+  const id = `usr_client_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  const now = new Date().toISOString();
+  let authUser: any = null;
+  try {
+    authUser = remoteCreateAuthUser(email, crypto.randomBytes(24).toString('base64url'), { role: 'client', name: artistName, real_first_name: realFirstName, real_surname: realSurname, artist_name: artistName, midama_user_id: id });
+    const created: User = { id, authUserId: authUser.id, email, name: artistName, artistName, realFirstName, realSurname, role: 'client', passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), status: 'active', createdAt: now, country: 'South Africa' };
+    try { db.createUser(created); } catch (dbErr) { try { remoteDeleteAuthUser(authUser.id); } catch (_) {} throw dbErr; }
+    await requestEmailOtp(email, false);
+    return res.status(201).json({ message: 'Registration received. A one-time verification code has been sent to your email.', email });
+  } catch (error: any) {
+    return res.status(400).json({ error: error?.message || 'Could not complete registration.' });
+  }
+});
+
 apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
   const email = normalizeAuthEmail(req.body?.email);
   const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
@@ -387,28 +410,51 @@ apiRouter.post('/auth/reset-password', (_req: Request, res: Response) => {
 });
 
 // ----------------------------------------------------
-// FILE UPLOAD ROUTES (Artwork & MP3 Audio)
+// FILE UPLOAD ROUTES (Artwork & WAV/FLAC Audio)
 // ----------------------------------------------------
+
+function detectImageDimensions(filePath: string, mime: string): { width: number; height: number } | null {
+  const b = fs.readFileSync(filePath);
+  if (mime === 'image/png' || b.subarray(0,8).toString('hex') === '89504e470d0a1a0a') {
+    if (b.length >= 24) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+    return null;
+  }
+  if (mime === 'image/jpeg' || b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const marker = b[i+1]; i += 2;
+      if (marker === 0xd8 || marker === 0xd9) continue;
+      if (i + 1 >= b.length) break;
+      const len = b.readUInt16BE(i);
+      if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker) && i + 7 < b.length) {
+        return { width: b.readUInt16BE(i+5), height: b.readUInt16BE(i+3) };
+      }
+      i += len;
+    }
+  }
+  return null;
+}
 
 apiRouter.post('/upload/artwork', authMiddleware, uploadArtwork.single('artwork'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No artwork image file uploaded.' });
   }
 
-  const { width, height } = req.body;
-  const parsedWidth = width ? parseInt(width, 10) : undefined;
-  const parsedHeight = height ? parseInt(height, 10) : undefined;
-
-  if (parsedWidth && parsedHeight) {
-    if (parsedWidth !== parsedHeight) {
-      // Remove invalid file
-      try { fs.unlinkSync(req.file.path); } catch (e) {}
-      return res.status(400).json({ error: `Artwork must be a 1:1 square (received ${parsedWidth}×${parsedHeight}px).` });
-    }
-    if (parsedWidth < 1000 || parsedWidth > 2500) {
-      try { fs.unlinkSync(req.file.path); } catch (e) {}
-      return res.status(400).json({ error: `Artwork dimensions must be between 1000×1000 and 2500×2500 pixels (received ${parsedWidth}×${parsedHeight}px).` });
-    }
+  const detected = detectImageDimensions(req.file.path, req.file.mimetype);
+  const parsedWidth = detected?.width;
+  const parsedHeight = detected?.height;
+  if (!parsedWidth || !parsedHeight) {
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    return res.status(400).json({ error: 'Could not read artwork dimensions. Please upload a valid JPG/PNG image.' });
+  }
+  if (parsedWidth !== parsedHeight) {
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    return res.status(400).json({ error: `Artwork must be exactly square (received ${parsedWidth}×${parsedHeight}px).` });
+  }
+  if (parsedWidth < 3000 || parsedWidth > 4000) {
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    return res.status(400).json({ error: `Artwork dimensions must be between 3000×3000 and 4000×4000 pixels (received ${parsedWidth}×${parsedHeight}px).` });
   }
 
   let storedFilename = req.file.filename;
@@ -430,20 +476,20 @@ apiRouter.post('/upload/audio', authMiddleware, uploadAudio.single('audio'), (re
     return res.status(400).json({ error: 'No audio file uploaded.' });
   }
 
-  const isMp3Ext = req.file.originalname.toLowerCase().endsWith('.mp3');
-  const isMp3Mime = req.file.mimetype.includes('audio/mpeg') || req.file.mimetype.includes('audio/mp3') || req.file.mimetype.includes('audio/x-mp3');
-  
-  if (!isMp3Ext && !isMp3Mime) {
-    try { fs.unlinkSync(req.file.path); } catch (e) {}
-    return res.status(400).json({ error: 'Invalid file format. Master audio must be in MP3 format ONLY (.mp3).' });
+  const audioName = req.file.originalname.toLowerCase();
+  const isWav = audioName.endsWith('.wav') || req.file.mimetype.includes('audio/wav') || req.file.mimetype.includes('audio/x-wav');
+  const isFlac = audioName.endsWith('.flac') || req.file.mimetype.includes('audio/flac') || req.file.mimetype.includes('audio/x-flac');
+  if (!isWav && !isFlac) {
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    return res.status(400).json({ error: 'Invalid file format. Master audio must be WAV or FLAC only.' });
   }
 
   let storedFilename = req.file.filename;
   let fileUrl = `/uploads/audio/${req.file.filename}`;
-  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'audio/mpeg'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || (audioName.endsWith('.flac') ? 'audio/flac' : 'audio/wav')); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   res.json({
     success: true,
-    message: 'MP3 audio master uploaded successfully',
+    message: 'Lossless audio master uploaded successfully',
     filename: req.file.originalname,
     storedFilename,
     fileUrl,
@@ -562,7 +608,7 @@ Producer(s):            ${release.producers?.length ? release.producers.join(', 
 
 TECHNICAL QUALITY CONTROL AUDIT:
 --------------------------------------------------------------------------------
-Master Audio Standard:  320kbps Constant Bitrate MP3 (Verified)
+Master Audio Standard:  Lossless WAV / FLAC (Verified)
 Artwork Standard:       Square 1:1 Aspect Ratio JPG/PNG (Verified)
 Artwork Dimensions:     ${release.artworkDimensions ? `${release.artworkDimensions.width}×${release.artworkDimensions.height}px` : 'Square compliant'}
 Artwork Source File:    ${release.artworkFilename}
@@ -635,15 +681,15 @@ apiRouter.post('/releases/:id/download-ticket', authMiddleware, (req: Authentica
       if (!track) return res.status(404).json({ error: 'No audio tracks found in this release.' });
       const storedName = track.storedFilename || path.basename(track.fileUrl);
       filePath = path.join(AUDIO_DIR, storedName);
-      filename = track.filename || `${release.refNumber}-track-1.mp3`;
-      contentType = 'audio/mpeg';
+      filename = track.filename || `${release.refNumber}-track-1.wav`;
+      contentType = filename.toLowerCase().endsWith('.flac') ? 'audio/flac' : 'audio/wav';
     } else {
       const track = release.tracks.find(t => t.id === trackId);
       if (!track) return res.status(404).json({ error: 'Audio track not found in this release.' });
       const storedName = track.storedFilename || path.basename(track.fileUrl);
       filePath = path.join(AUDIO_DIR, storedName);
-      filename = track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`;
-      contentType = 'audio/mpeg';
+      filename = track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.wav`;
+      contentType = filename.toLowerCase().endsWith('.flac') ? 'audio/flac' : 'audio/wav';
     }
   } else if (normAssetType === 'document') {
     if (documentId && release.documents && release.documents.length > 0) {
@@ -816,9 +862,9 @@ apiRouter.get('/releases/:id/download-track/:trackId', (req: Request, res: Respo
     const filePath = path.join(AUDIO_DIR, filename);
 
     if (fs.existsSync(filePath)) {
-      return res.download(filePath, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`);
+      return res.download(filePath, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.wav`);
     }
-    return res.status(404).json({ error: 'The requested MP3 audio file no longer exists on the server.' });
+    return res.status(404).json({ error: 'The requested lossless audio file no longer exists on the server.' });
   });
 });
 
@@ -994,10 +1040,10 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
   ];
   for (const prof of allArtistProfiles) {
     if (!prof?.name?.trim()) return res.status(400).json({ error: 'Every artist must have a name.' });
-    if (!prof.spotifyProfileUrl || !isValidHttpUrl(prof.spotifyProfileUrl)) {
+    if (!prof.spotifyProfileUrl && !prof.spotifyProfileCreateRequested || prof.spotifyProfileUrl && !isValidHttpUrl(prof.spotifyProfileUrl)) {
       return res.status(400).json({ error: `Spotify Artist Profile for "${prof.name}" is required and must be a valid URL.` });
     }
-    if (!prof.appleMusicProfileUrl || !isValidHttpUrl(prof.appleMusicProfileUrl)) {
+    if (!prof.appleMusicProfileUrl && !prof.appleMusicProfileCreateRequested || prof.appleMusicProfileUrl && !isValidHttpUrl(prof.appleMusicProfileUrl)) {
       return res.status(400).json({ error: `Apple Music Artist Profile for "${prof.name}" is required and must be a valid URL.` });
     }
   }
@@ -1006,29 +1052,29 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
     return res.status(400).json({ error: 'Cover artwork is required.' });
   }
   if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-    return res.status(400).json({ error: 'At least one MP3 audio track master is required.' });
+    return res.status(400).json({ error: 'At least one WAV or FLAC audio track master is required.' });
   }
 
-  // Validate audio files are MP3 & song artist metadata
+  // Validate lossless audio files & song artist metadata
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
     if (!t.title || !t.title.trim()) {
       return res.status(400).json({ error: 'Every audio track must have a track title.' });
     }
-    if (!t.filename || !t.filename.toLowerCase().endsWith('.mp3')) {
-      return res.status(400).json({ error: `Track "${t.title}" must be an MP3 audio file (.mp3).` });
+    if (!t.filename || !/\.(wav|flac)$/i.test(t.filename)) {
+      return res.status(400).json({ error: `Track "${t.title}" must be a WAV or FLAC audio file.` });
     }
 
     if ((releaseType === 'EP' || releaseType === 'Album')) {
       if (!t.primaryArtist?.trim()) return res.status(400).json({ error: `Track #${i + 1} requires a Primary Artist.` });
-      if (!t.primaryArtistSpotifyUrl || !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} Spotify Artist Profile is required and must be a valid URL.` });
-      if (!t.primaryArtistAppleMusicUrl || !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} Apple Music Artist Profile is required and must be a valid URL.` });
+      if (!t.primaryArtistSpotifyUrl && !t.primaryArtistSpotifyProfileCreateRequested || t.primaryArtistSpotifyUrl && !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} needs a Spotify artist profile link or a profile-creation request.` });
+      if (!t.primaryArtistAppleMusicUrl && !t.primaryArtistAppleMusicProfileCreateRequested || t.primaryArtistAppleMusicUrl && !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} needs an Apple Music artist profile link or a profile-creation request.` });
     }
     if (Array.isArray(t.artistProfiles)) {
       for (const ap of t.artistProfiles) {
         if (!ap?.name?.trim()) return res.status(400).json({ error: `Track #${i + 1} contains an artist without a name.` });
-        if (!ap.spotifyProfileUrl || !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Spotify Artist Profile is required and must be a valid URL.` });
-        if (!ap.appleMusicProfileUrl || !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Apple Music Artist Profile is required and must be a valid URL.` });
+        if (!ap.spotifyProfileUrl && !ap.spotifyProfileCreateRequested || ap.spotifyProfileUrl && !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" needs a Spotify profile link or creation request.` });
+        if (!ap.appleMusicProfileUrl && !ap.appleMusicProfileCreateRequested || ap.appleMusicProfileUrl && !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" needs an Apple Music profile link or creation request.` });
       }
     }
 
@@ -1488,7 +1534,7 @@ apiRouter.get('/admin/clients', authMiddleware, adminOnly, (_req: AuthenticatedR
 
 // Admin Register Client Manually (Client creates their password upon first visit, or admin sets it)
 apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
-  const { email, name, password, phone, country } = req.body;
+  const { email, name, phone, country } = req.body;
 
   if (!email || !email.includes('@')) {
     return res.status(400).json({ error: 'Valid client email address is required.' });
@@ -1503,17 +1549,8 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
   }
 
   const now = new Date().toISOString();
-  let passwordHash: string;
-  let status: 'active' | 'pending_activation' = 'active';
-
-  if (password && password.trim().length >= 6) {
-    passwordHash = hashPassword(password.trim());
-    status = 'active';
-  } else {
-    // When registered without a password, client will simply visit the site, enter their email, and set their password!
-    passwordHash = hashPassword(generateToken());
-    status = 'pending_activation';
-  }
+  const passwordHash = hashPassword(generateToken());
+  const status: 'active' = 'active';
 
   const newClient: User = {
     id: `usr_client_${Date.now()}`,
@@ -1529,7 +1566,7 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
 
   if (remotePersistenceConfigured) {
     try {
-      const authUser = remoteFindAuthUserByEmail(newClient.email) || remoteCreateAuthUser(newClient.email, password && password.trim().length >= 6 ? password.trim() : generateToken(), {
+      const authUser = remoteFindAuthUserByEmail(newClient.email) || remoteCreateAuthUser(newClient.email, generateToken(), {
         role: 'client',
         name: newClient.name,
         midama_user_id: newClient.id,
@@ -1556,39 +1593,15 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
 
   const { passwordHash: _hash, ...safeUser } = newClient;
   res.status(201).json({
-    message: `Client "${newClient.name}" successfully registered! The client can now visit Mid-Ama Promo, choose "First Time? Create Password", enter ${newClient.email}, and immediately access their empty dashboard. No codes needed!`,
+    message: `Client "${newClient.name}" successfully registered. They can sign in using the one-time code sent to ${newClient.email}.`,
     client: safeUser,
-    hasDirectPassword: !!password,
+    hasDirectPassword: false,
   });
 });
 
-// Admin manually set or reset a client's password directly
-apiRouter.post('/admin/clients/:id/password', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
-  const { password } = req.body;
-  if (!password || password.trim().length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
-  }
-  const client = db.findUserById(req.params.id);
-  if (!client || client.role !== 'client') {
-    return res.status(404).json({ error: 'Client account not found.' });
-  }
-
-  if (remotePersistenceConfigured) {
-    try {
-      const authUser = client.authUserId ? remoteUpdateAuthUser(client.authUserId, { password: password.trim(), email_confirm: true }) : (remoteFindAuthUserByEmail(client.email) || remoteCreateAuthUser(client.email, password.trim(), { role: 'client', name: client.name, midama_user_id: client.id }));
-      client.authUserId = authUser.id;
-    } catch (error: any) {
-      return res.status(502).json({ error: `Supabase Auth password update failed: ${error?.message || error}` });
-    }
-  }
-
-  const updated = db.updateUser(client.id, {
-    authUserId: client.authUserId,
-    passwordHash: hashPassword(password.trim()),
-    status: 'active',
-  });
-  const { passwordHash: _hash, ...safeUser } = updated!;
-  res.json({ message: `Password successfully updated for ${client.name}.`, client: safeUser });
+// Password management is retired. All client authentication uses email OTP.
+apiRouter.post('/admin/clients/:id/password', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  return res.status(410).json({ error: 'Client passwords are retired. Clients sign in with an email one-time code.' });
 });
 
 // Admin: Access client account without client password (support & management)
@@ -1916,6 +1929,28 @@ apiRouter.patch('/admin/catalogue/:id', authMiddleware, adminOnly, (req: Authent
 });
 
 // ----------------------------------------------------
+// TAKEDOWN REQUESTS
+// ----------------------------------------------------
+apiRouter.post('/releases/:id/takedown-request', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const release = db.findReleaseById(req.params.id);
+  if (!release) return res.status(404).json({ error: 'Release not found.' });
+  if (req.user!.role !== 'admin' && release.userId !== req.user!.id) return res.status(403).json({ error: 'Access denied.' });
+  if (release.status === 'Takedown Completed' || release.status === 'Takedown Processing') return res.status(400).json({ error: 'A takedown is already being processed for this release.' });
+  const updated = db.updateRelease(release.id, { status: 'Takedown Requested', statusHistory: [...(release.statusHistory || []), { status: 'Takedown Requested', timestamp: new Date().toISOString(), updatedBy: req.user!.name, note: 'Takedown requested by client.' }] });
+  if (updated) void sendAdminTakedownEmail(updated);
+  res.json({ message: 'Takedown request submitted.', release: updated });
+});
+
+apiRouter.post('/releases/:id/takedown-process', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const release = db.findReleaseById(req.params.id);
+  if (!release) return res.status(404).json({ error: 'Release not found.' });
+  const status = req.body?.status === 'Takedown Completed' ? 'Takedown Completed' : 'Takedown Processing';
+  const history = [...(release.statusHistory || []), { status: status as ReleaseStatus, timestamp: new Date().toISOString(), updatedBy: req.user!.name, note: req.body?.note || 'Admin updated takedown status.' }];
+  const updated = db.updateRelease(release.id, { status: status as ReleaseStatus, statusHistory: history });
+  res.json({ message: `Takedown status updated to ${status}.`, release: updated });
+});
+
+// ----------------------------------------------------
 // ENQUIRIES / CONTACT
 // ----------------------------------------------------
 
@@ -1936,6 +1971,7 @@ apiRouter.post('/enquiries', (req: Request, res: Response) => {
     status: 'new',
   });
 
+  void sendAdminEnquiryEmail(enquiry);
   res.status(201).json({
     message: 'Enquiry received. Mid-Ama Promo administration will review your message.',
     enquiry,

@@ -8,6 +8,7 @@ interface AuthContextType {
   isImpersonating: boolean;
   impersonatedClientName: string | null;
   requestLoginOtp: (email: string) => Promise<string>;
+  registerArtist: (payload: { realFirstName: string; realSurname: string; artistName: string; email: string }) => Promise<string>;
   verifyLoginOtp: (email: string, code: string) => Promise<User>;
   accessClientAccount: (clientId: string) => Promise<User>;
   exitClientAccount: () => Promise<void>;
@@ -51,6 +52,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // which syncs existing client and executes ONE Supabase signInWithOtp() call.
     const serverRes = await api.requestLoginOtp(normalizedEmail);
     return serverRes.message || 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.';
+  };
+
+  const registerArtist = async (payload: { realFirstName: string; realSurname: string; artistName: string; email: string }): Promise<string> => {
+    const res = await api.registerArtist(payload);
+    return res.message;
   };
 
   const verifyLoginOtp = async (email: string, code: string): Promise<User> => {
@@ -117,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isImpersonating,
         impersonatedClientName,
         requestLoginOtp,
+        registerArtist,
         verifyLoginOtp,
         accessClientAccount,
         exitClientAccount,

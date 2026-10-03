@@ -206,7 +206,7 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label className="space-y-2"><span className="label">Cover Artwork</span><div className="filebox"><ImageIcon className="w-4 h-4" /><input type="file" accept="image/jpeg,image/png" onChange={e => setArtwork(e.target.files?.[0] || null)} />{artwork?.name || (entry?.artworkFilename ? `Current: ${entry.artworkFilename}` : 'Choose image')}</div></label>
-            <label className="space-y-2"><span className="label">Master MP3</span><div className="filebox"><Music2 className="w-4 h-4" /><input type="file" accept="audio/mpeg,.mp3" onChange={e => setTrack(e.target.files?.[0] || null)} />{track?.name || (entry?.tracks?.[0]?.filename ? `Current: ${entry.tracks[0].filename}` : 'Choose MP3')}</div></label>
+            <label className="space-y-2"><span className="label">Master WAV / FLAC</span><div className="filebox"><Music2 className="w-4 h-4" /><input type="file" accept="audio/wav,audio/flac,.wav,.flac" onChange={e => setTrack(e.target.files?.[0] || null)} />{track?.name || (entry?.tracks?.[0]?.filename ? `Current: ${entry.tracks[0].filename}` : 'Choose WAV / FLAC')}</div></label>
             <label className="space-y-2"><span className="label">Supporting Document</span><div className="filebox"><UploadCloud className="w-4 h-4" /><input type="file" accept=".pdf,.doc,.docx,.txt,.csv,.rtf" onChange={e => setDocument(e.target.files?.[0] || null)} />{document?.name || 'Optional document'}</div></label>
           </section>
 

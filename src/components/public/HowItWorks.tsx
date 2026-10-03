@@ -13,7 +13,7 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
       title: 'Email Registration',
       subtitle: 'Verified Artist Onboarding',
       description:
-        'Clients receive a direct invitation or register their artist/record label profile. Secure password creation ensures strictly isolated access to your releases and catalog.',
+        'Clients receive a direct invitation or register their artist/record label profile. Email OTP verification provides secure, passwordless access to your releases and catalogue.',
       highlight: 'Private Client Account',
     },
     {
@@ -22,7 +22,7 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
       title: 'Upload & Submit',
       subtitle: 'Strict Industry Standards',
       description:
-        'Submit full metadata, primary and featured artists, high-definition square artwork (1000×1000 to 2500×2500px), and pristine 320kbps MP3 audio master files.',
+        'Submit full metadata, primary and featured artists, high-definition square artwork (3000×3000 to 4000×4000px), and lossless WAV or FLAC audio masters.',
       highlight: 'Real-time Validation Checks',
     },
     {
