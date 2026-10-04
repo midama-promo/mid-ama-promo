@@ -491,14 +491,34 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // Track primary artist handlers (EP/Album)
   const getTrackPrimaryArtists = (track: AudioTrackFormItem): TrackPrimaryArtist[] => {
-    if (track.primaryArtists && track.primaryArtists.length > 0) return track.primaryArtists;
-    return [{
-      name: track.primaryArtist || '',
-      spotifyProfileUrl: track.primaryArtistSpotifyUrl || '',
-      appleMusicProfileUrl: track.primaryArtistAppleMusicUrl || '',
-      spotifyProfileCreateRequested: !!track.primaryArtistSpotifyProfileCreateRequested,
-      appleMusicProfileCreateRequested: !!track.primaryArtistAppleMusicProfileCreateRequested,
-    }];
+    const artists = track.primaryArtists && track.primaryArtists.length > 0
+      ? track.primaryArtists
+      : [{
+          name: track.primaryArtist || '',
+          spotifyProfileUrl: track.primaryArtistSpotifyUrl || '',
+          appleMusicProfileUrl: track.primaryArtistAppleMusicUrl || '',
+          spotifyProfileCreateRequested: !!track.primaryArtistSpotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!track.primaryArtistAppleMusicProfileCreateRequested,
+        }];
+
+    // A release-level primary artist is also the default artist identity for
+    // matching EP/Album tracks. Inherit only missing profile fields so an
+    // explicitly configured track-level profile remains untouched.
+    const first = artists[0];
+    const releaseArtist = primaryArtistsList.find((artist) =>
+      artist.name.trim().toLowerCase() === first?.name?.trim().toLowerCase() && artist.name.trim()
+    );
+    if (!releaseArtist) return artists;
+
+    const mergedFirst: TrackPrimaryArtist = {
+      ...first,
+      spotifyProfileUrl: first.spotifyProfileUrl || releaseArtist.spotifyProfileUrl || '',
+      appleMusicProfileUrl: first.appleMusicProfileUrl || releaseArtist.appleMusicProfileUrl || '',
+      spotifyProfileCreateRequested: !!first.spotifyProfileCreateRequested || !!releaseArtist.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!first.appleMusicProfileCreateRequested || !!releaseArtist.appleMusicProfileCreateRequested,
+    };
+
+    return [mergedFirst, ...artists.slice(1)];
   };
 
   const handleAddTrackPrimaryArtist = (trackIdx: number) => {
@@ -717,8 +737,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         primaryArtist: primaryArtistsList[0]?.name || '',
         primaryArtistSpotifyUrl: primaryArtistsList[0]?.spotifyProfileUrl || '',
         primaryArtistAppleMusicUrl: primaryArtistsList[0]?.appleMusicProfileUrl || '',
-        primaryArtistSpotifyProfileCreateRequested: false,
-        primaryArtistAppleMusicProfileCreateRequested: false,
+        primaryArtistSpotifyProfileCreateRequested: !!primaryArtistsList[0]?.spotifyProfileCreateRequested,
+        primaryArtistAppleMusicProfileCreateRequested: !!primaryArtistsList[0]?.appleMusicProfileCreateRequested,
         featuredArtists: [],
       },
     ]);
