@@ -1038,11 +1038,11 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
   ];
   for (const prof of allArtistProfiles) {
     if (!prof?.name?.trim()) return res.status(400).json({ error: 'Every artist must have a name.' });
-    if (!prof.spotifyProfileUrl && !prof.spotifyProfileCreateRequested || prof.spotifyProfileUrl && !isValidHttpUrl(prof.spotifyProfileUrl)) {
-      return res.status(400).json({ error: `Spotify Artist Profile for "${prof.name}" is required and must be a valid URL.` });
+    if (prof.spotifyProfileUrl && !isValidHttpUrl(prof.spotifyProfileUrl)) {
+      return res.status(400).json({ error: `Spotify Artist Profile for "${prof.name}" must be a valid URL when provided.` });
     }
-    if (!prof.appleMusicProfileUrl && !prof.appleMusicProfileCreateRequested || prof.appleMusicProfileUrl && !isValidHttpUrl(prof.appleMusicProfileUrl)) {
-      return res.status(400).json({ error: `Apple Music Artist Profile for "${prof.name}" is required and must be a valid URL.` });
+    if (prof.appleMusicProfileUrl && !isValidHttpUrl(prof.appleMusicProfileUrl)) {
+      return res.status(400).json({ error: `Apple Music Artist Profile for "${prof.name}" must be a valid URL when provided.` });
     }
   }
 
@@ -1065,14 +1065,14 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
 
     if ((releaseType === 'EP' || releaseType === 'Album')) {
       if (!t.primaryArtist?.trim()) return res.status(400).json({ error: `Track #${i + 1} requires a Primary Artist.` });
-      if (!t.primaryArtistSpotifyUrl && !t.primaryArtistSpotifyProfileCreateRequested || t.primaryArtistSpotifyUrl && !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} needs a Spotify artist profile link or a profile-creation request.` });
-      if (!t.primaryArtistAppleMusicUrl && !t.primaryArtistAppleMusicProfileCreateRequested || t.primaryArtistAppleMusicUrl && !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} needs an Apple Music artist profile link or a profile-creation request.` });
+      if (t.primaryArtistSpotifyUrl && !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} Spotify artist profile link must be a valid URL when provided.` });
+      if (t.primaryArtistAppleMusicUrl && !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} Apple Music artist profile link must be a valid URL when provided.` });
     }
     if (Array.isArray(t.artistProfiles)) {
       for (const ap of t.artistProfiles) {
         if (!ap?.name?.trim()) return res.status(400).json({ error: `Track #${i + 1} contains an artist without a name.` });
-        if (!ap.spotifyProfileUrl && !ap.spotifyProfileCreateRequested || ap.spotifyProfileUrl && !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" needs a Spotify profile link or creation request.` });
-        if (!ap.appleMusicProfileUrl && !ap.appleMusicProfileCreateRequested || ap.appleMusicProfileUrl && !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" needs an Apple Music profile link or creation request.` });
+        if (ap.spotifyProfileUrl && !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Spotify profile link must be a valid URL when provided.` });
+        if (ap.appleMusicProfileUrl && !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Apple Music profile link must be a valid URL when provided.` });
       }
     }
 

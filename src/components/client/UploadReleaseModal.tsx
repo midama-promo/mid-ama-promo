@@ -491,34 +491,14 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // Track primary artist handlers (EP/Album)
   const getTrackPrimaryArtists = (track: AudioTrackFormItem): TrackPrimaryArtist[] => {
-    const artists = track.primaryArtists && track.primaryArtists.length > 0
-      ? track.primaryArtists
-      : [{
-          name: track.primaryArtist || '',
-          spotifyProfileUrl: track.primaryArtistSpotifyUrl || '',
-          appleMusicProfileUrl: track.primaryArtistAppleMusicUrl || '',
-          spotifyProfileCreateRequested: !!track.primaryArtistSpotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !!track.primaryArtistAppleMusicProfileCreateRequested,
-        }];
-
-    // A release-level primary artist is also the default artist identity for
-    // matching EP/Album tracks. Inherit only missing profile fields so an
-    // explicitly configured track-level profile remains untouched.
-    const first = artists[0];
-    const releaseArtist = primaryArtistsList.find((artist) =>
-      artist.name.trim().toLowerCase() === first?.name?.trim().toLowerCase() && artist.name.trim()
-    );
-    if (!releaseArtist) return artists;
-
-    const mergedFirst: TrackPrimaryArtist = {
-      ...first,
-      spotifyProfileUrl: first.spotifyProfileUrl || releaseArtist.spotifyProfileUrl || '',
-      appleMusicProfileUrl: first.appleMusicProfileUrl || releaseArtist.appleMusicProfileUrl || '',
-      spotifyProfileCreateRequested: !!first.spotifyProfileCreateRequested || !!releaseArtist.spotifyProfileCreateRequested,
-      appleMusicProfileCreateRequested: !!first.appleMusicProfileCreateRequested || !!releaseArtist.appleMusicProfileCreateRequested,
-    };
-
-    return [mergedFirst, ...artists.slice(1)];
+    if (track.primaryArtists && track.primaryArtists.length > 0) return track.primaryArtists;
+    return [{
+      name: track.primaryArtist || '',
+      spotifyProfileUrl: track.primaryArtistSpotifyUrl || '',
+      appleMusicProfileUrl: track.primaryArtistAppleMusicUrl || '',
+      spotifyProfileCreateRequested: !!track.primaryArtistSpotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!track.primaryArtistAppleMusicProfileCreateRequested,
+    }];
   };
 
   const handleAddTrackPrimaryArtist = (trackIdx: number) => {
@@ -737,8 +717,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         primaryArtist: primaryArtistsList[0]?.name || '',
         primaryArtistSpotifyUrl: primaryArtistsList[0]?.spotifyProfileUrl || '',
         primaryArtistAppleMusicUrl: primaryArtistsList[0]?.appleMusicProfileUrl || '',
-        primaryArtistSpotifyProfileCreateRequested: !!primaryArtistsList[0]?.spotifyProfileCreateRequested,
-        primaryArtistAppleMusicProfileCreateRequested: !!primaryArtistsList[0]?.appleMusicProfileCreateRequested,
+        primaryArtistSpotifyProfileCreateRequested: false,
+        primaryArtistAppleMusicProfileCreateRequested: false,
         featuredArtists: [],
       },
     ]);
@@ -840,12 +820,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     // Validate URLs for Primary Artists
     for (let i = 0; i < primaryArtistsList.length; i++) {
       const a = primaryArtistsList[i];
-      if ((!a.spotifyProfileUrl && !a.spotifyProfileCreateRequested) || (a.spotifyProfileUrl && !isValidUrl(a.spotifyProfileUrl))) {
-        setSubmitError(`Spotify Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" is required and must be a valid URL.`);
+      if (a.spotifyProfileUrl && !isValidUrl(a.spotifyProfileUrl)) {
+        setSubmitError(`Spotify Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" must be a valid URL when provided.`);
         return false;
       }
-      if ((!a.appleMusicProfileUrl && !a.appleMusicProfileCreateRequested) || (a.appleMusicProfileUrl && !isValidUrl(a.appleMusicProfileUrl))) {
-        setSubmitError(`Apple Music Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" is required and must be a valid URL.`);
+      if (a.appleMusicProfileUrl && !isValidUrl(a.appleMusicProfileUrl)) {
+        setSubmitError(`Apple Music Artist Profile for "${a.name || `Primary Artist #${i + 1}`}" must be a valid URL when provided.`);
         return false;
       }
     }
@@ -857,12 +837,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         setSubmitError(`Please provide the name for Featured Artist #${i + 1} or remove the row.`);
         return false;
       }
-      if ((!fa.spotifyProfileUrl && !fa.spotifyProfileCreateRequested) || (fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl))) {
-        setSubmitError(`Spotify Artist Profile for featured artist "${fa.name}" is required and must be a valid URL.`);
+      if (fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl)) {
+        setSubmitError(`Spotify Artist Profile for featured artist "${fa.name}" must be a valid URL when provided.`);
         return false;
       }
-      if ((!fa.appleMusicProfileUrl && !fa.appleMusicProfileCreateRequested) || (fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl))) {
-        setSubmitError(`Apple Music Artist Profile for featured artist "${fa.name}" is required and must be a valid URL.`);
+      if (fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl)) {
+        setSubmitError(`Apple Music Artist Profile for featured artist "${fa.name}" must be a valid URL when provided.`);
         return false;
       }
     }
@@ -934,12 +914,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             setSubmitError(`Track #${i + 1} Primary Artist #${pIdx + 1} requires a name or must be removed.`);
             return false;
           }
-          if ((!pa.spotifyProfileUrl && !pa.spotifyProfileCreateRequested) || (pa.spotifyProfileUrl && !isValidUrl(pa.spotifyProfileUrl))) {
-            setSubmitError(`Track #${i + 1} Spotify Artist Profile for "${pa.name}" is required and must be a valid URL.`);
+          if (pa.spotifyProfileUrl && !isValidUrl(pa.spotifyProfileUrl)) {
+            setSubmitError(`Track #${i + 1} Spotify Artist Profile for "${pa.name}" must be a valid URL when provided.`);
             return false;
           }
-          if ((!pa.appleMusicProfileUrl && !pa.appleMusicProfileCreateRequested) || (pa.appleMusicProfileUrl && !isValidUrl(pa.appleMusicProfileUrl))) {
-            setSubmitError(`Track #${i + 1} Apple Music Artist Profile for "${pa.name}" is required and must be a valid URL.`);
+          if (pa.appleMusicProfileUrl && !isValidUrl(pa.appleMusicProfileUrl)) {
+            setSubmitError(`Track #${i + 1} Apple Music Artist Profile for "${pa.name}" must be a valid URL when provided.`);
             return false;
           }
         }
@@ -953,12 +933,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             setSubmitError(`Track #${i + 1} featured artist #${faIdx + 1} requires a name.`);
             return false;
           }
-          if (isEpOrAlbum && ((!fa.spotifyProfileUrl && !fa.spotifyProfileCreateRequested) || (fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl)))) {
-            setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Spotify Artist Profile is required and must be a valid URL.`);
+          if (isEpOrAlbum && fa.spotifyProfileUrl && !isValidUrl(fa.spotifyProfileUrl)) {
+            setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Spotify Artist Profile must be a valid URL when provided.`);
             return false;
           }
-          if (isEpOrAlbum && ((!fa.appleMusicProfileUrl && !fa.appleMusicProfileCreateRequested) || (fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl)))) {
-            setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Apple Music Artist Profile is required and must be a valid URL.`);
+          if (isEpOrAlbum && fa.appleMusicProfileUrl && !isValidUrl(fa.appleMusicProfileUrl)) {
+            setSubmitError(`Track #${i + 1} featured artist "${fa.name}" Apple Music Artist Profile must be a valid URL when provided.`);
             return false;
           }
         }
@@ -1016,25 +996,17 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         const trackPrimaryArtists = getTrackPrimaryArtists(t).filter((a) => a.name.trim());
         const trackPrimary = trackPrimaryArtists.map((a) => a.name.trim()).join(', ') || effectivePrimaryArtists[0] || user?.name || 'Artist';
         const firstTrackPrimary = trackPrimaryArtists[0];
-        const matchingReleasePrimary = firstTrackPrimary
-          ? primaryArtistsList.find((a) => a.name.trim().toLowerCase() === firstTrackPrimary.name.trim().toLowerCase())
-          : undefined;
-        const trackSpotify = firstTrackPrimary?.spotifyProfileUrl?.trim() || t.primaryArtistSpotifyUrl?.trim() || matchingReleasePrimary?.spotifyProfileUrl?.trim() || primaryArtistProfiles[0]?.spotifyProfileUrl;
-        const trackApple = firstTrackPrimary?.appleMusicProfileUrl?.trim() || t.primaryArtistAppleMusicUrl?.trim() || matchingReleasePrimary?.appleMusicProfileUrl?.trim() || primaryArtistProfiles[0]?.appleMusicProfileUrl;
-        const trackSpotifyCreateRequested = !!firstTrackPrimary?.spotifyProfileCreateRequested || !!t.primaryArtistSpotifyProfileCreateRequested || !!matchingReleasePrimary?.spotifyProfileCreateRequested;
-        const trackAppleCreateRequested = !!firstTrackPrimary?.appleMusicProfileCreateRequested || !!t.primaryArtistAppleMusicProfileCreateRequested || !!matchingReleasePrimary?.appleMusicProfileCreateRequested;
+        const trackSpotify = firstTrackPrimary?.spotifyProfileUrl?.trim() || t.primaryArtistSpotifyUrl?.trim() || primaryArtistProfiles[0]?.spotifyProfileUrl;
+        const trackApple = firstTrackPrimary?.appleMusicProfileUrl?.trim() || t.primaryArtistAppleMusicUrl?.trim() || primaryArtistProfiles[0]?.appleMusicProfileUrl;
 
-        const songPrimaryProfiles: ArtistCredit[] = trackPrimaryArtists.map((pa) => {
-          const matchingReleaseArtist = primaryArtistsList.find((a) => a.name.trim().toLowerCase() === pa.name.trim().toLowerCase());
-          return {
-            name: pa.name.trim(),
-            role: 'primary' as const,
-            spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || matchingReleaseArtist?.spotifyProfileUrl?.trim() || undefined,
-            appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || matchingReleaseArtist?.appleMusicProfileUrl?.trim() || undefined,
-            spotifyProfileCreateRequested: !!pa.spotifyProfileCreateRequested || !!matchingReleaseArtist?.spotifyProfileCreateRequested,
-            appleMusicProfileCreateRequested: !!pa.appleMusicProfileCreateRequested || !!matchingReleaseArtist?.appleMusicProfileCreateRequested,
-          };
-        });
+        const songPrimaryProfiles: ArtistCredit[] = trackPrimaryArtists.map((pa) => ({
+          name: pa.name.trim(),
+          role: 'primary' as const,
+          spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || undefined,
+          appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || undefined,
+          spotifyProfileCreateRequested: !!pa.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!pa.appleMusicProfileCreateRequested,
+        }));
 
         const songFeaturedProfiles: ArtistCredit[] = (t.featuredArtists || [])
           .filter((fa) => fa.name.trim())
@@ -1053,8 +1025,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'primary' as const,
             spotifyProfileUrl: trackSpotify || undefined,
             appleMusicProfileUrl: trackApple || undefined,
-            spotifyProfileCreateRequested: trackSpotifyCreateRequested,
-            appleMusicProfileCreateRequested: trackAppleCreateRequested,
+            spotifyProfileCreateRequested: !!t.primaryArtistSpotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!t.primaryArtistAppleMusicProfileCreateRequested,
           }]),
           ...songFeaturedProfiles,
         ];
@@ -1073,8 +1045,6 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           primaryArtist: trackPrimary,
           primaryArtistSpotifyUrl: trackSpotify || undefined,
           primaryArtistAppleMusicUrl: trackApple || undefined,
-          primaryArtistSpotifyProfileCreateRequested: trackSpotifyCreateRequested,
-          primaryArtistAppleMusicProfileCreateRequested: trackAppleCreateRequested,
           featuredArtists: (t.featuredArtists || []).map((fa) => fa.name.trim()).filter(Boolean),
           artistProfiles: trackArtistProfiles,
         };
