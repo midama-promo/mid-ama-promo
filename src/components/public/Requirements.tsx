@@ -62,14 +62,14 @@ export const Requirements: React.FC = () => {
                 <h3 className="text-base font-bold text-white font-['Space_Grotesk']">
                   Audio Masters
                 </h3>
-                <span className="text-xs font-mono text-red-500">Lossless WAV / FLAC Format</span>
+                <span className="text-xs font-mono text-red-500">MP3 Format</span>
               </div>
             </div>
 
             <ul className="space-y-3 text-xs sm:text-sm text-neutral-300">
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span><strong>WAV or FLAC audio format only</strong> (.wav or .flac file extension).</span>
+                <span><strong>MP3 audio format only</strong> (.mp3 file extension).</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
@@ -81,7 +81,7 @@ export const Requirements: React.FC = () => {
               </li>
               <li className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                <span>Only WAV and FLAC master files are accepted.</span>
+                <span>Only MP3 master files are accepted.</span>
               </li>
             </ul>
           </div>

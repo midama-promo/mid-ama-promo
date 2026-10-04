@@ -93,7 +93,7 @@ const artworkStorage = multer.diskStorage({
   }
 });
 
-// Multer storage for audio masters (WAV/FLAC only)
+// Multer storage for audio masters (MP3 only)
 const audioStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, AUDIO_DIR),
   filename: (_req, file, cb) => {
@@ -145,10 +145,9 @@ const uploadAudio = multer({
   limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const name = file.originalname.toLowerCase();
-    const isWav = name.endsWith('.wav') || file.mimetype === 'audio/wav' || file.mimetype === 'audio/x-wav';
-    const isFlac = name.endsWith('.flac') || file.mimetype === 'audio/flac' || file.mimetype === 'audio/x-flac';
-    if (isWav || isFlac) cb(null, true);
-    else cb(new Error('Invalid audio format. Only WAV and FLAC master files are accepted.'));
+    const isMp3 = name.endsWith('.mp3') || file.mimetype === 'audio/mpeg' || file.mimetype === 'audio/mp3' || file.mimetype === 'audio/x-mp3';
+    if (isMp3) cb(null, true);
+    else cb(new Error('Invalid audio format. Only MP3 master audio files are accepted.'));
   }
 });
 
@@ -410,7 +409,7 @@ apiRouter.post('/auth/reset-password', (_req: Request, res: Response) => {
 });
 
 // ----------------------------------------------------
-// FILE UPLOAD ROUTES (Artwork & WAV/FLAC Audio)
+// FILE UPLOAD ROUTES (Artwork & MP3 Audio)
 // ----------------------------------------------------
 
 function detectImageDimensions(filePath: string, mime: string): { width: number; height: number } | null {
@@ -477,19 +476,18 @@ apiRouter.post('/upload/audio', authMiddleware, uploadAudio.single('audio'), (re
   }
 
   const audioName = req.file.originalname.toLowerCase();
-  const isWav = audioName.endsWith('.wav') || req.file.mimetype.includes('audio/wav') || req.file.mimetype.includes('audio/x-wav');
-  const isFlac = audioName.endsWith('.flac') || req.file.mimetype.includes('audio/flac') || req.file.mimetype.includes('audio/x-flac');
-  if (!isWav && !isFlac) {
+  const isMp3 = audioName.endsWith('.mp3') || req.file.mimetype === 'audio/mpeg' || req.file.mimetype === 'audio/mp3' || req.file.mimetype === 'audio/x-mp3';
+  if (!isMp3) {
     try { fs.unlinkSync(req.file.path); } catch (_) {}
-    return res.status(400).json({ error: 'Invalid file format. Master audio must be WAV or FLAC only.' });
+    return res.status(400).json({ error: 'Invalid file format. Master audio must be MP3 only.' });
   }
 
   let storedFilename = req.file.filename;
   let fileUrl = `/uploads/audio/${req.file.filename}`;
-  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || (audioName.endsWith('.flac') ? 'audio/flac' : 'audio/wav')); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'audio/mpeg'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   res.json({
     success: true,
-    message: 'Lossless audio master uploaded successfully',
+    message: 'MP3 audio master uploaded successfully',
     filename: req.file.originalname,
     storedFilename,
     fileUrl,
@@ -608,7 +606,7 @@ Producer(s):            ${release.producers?.length ? release.producers.join(', 
 
 TECHNICAL QUALITY CONTROL AUDIT:
 --------------------------------------------------------------------------------
-Master Audio Standard:  Lossless WAV / FLAC (Verified)
+Master Audio Standard:  MP3 (Verified)
 Artwork Standard:       Square 1:1 Aspect Ratio JPG/PNG (Verified)
 Artwork Dimensions:     ${release.artworkDimensions ? `${release.artworkDimensions.width}×${release.artworkDimensions.height}px` : 'Square compliant'}
 Artwork Source File:    ${release.artworkFilename}
@@ -681,15 +679,15 @@ apiRouter.post('/releases/:id/download-ticket', authMiddleware, (req: Authentica
       if (!track) return res.status(404).json({ error: 'No audio tracks found in this release.' });
       const storedName = track.storedFilename || path.basename(track.fileUrl);
       filePath = path.join(AUDIO_DIR, storedName);
-      filename = track.filename || `${release.refNumber}-track-1.wav`;
-      contentType = filename.toLowerCase().endsWith('.flac') ? 'audio/flac' : 'audio/wav';
+      filename = track.filename || `${release.refNumber}-track-1.mp3`;
+      contentType = 'audio/mpeg';
     } else {
       const track = release.tracks.find(t => t.id === trackId);
       if (!track) return res.status(404).json({ error: 'Audio track not found in this release.' });
       const storedName = track.storedFilename || path.basename(track.fileUrl);
       filePath = path.join(AUDIO_DIR, storedName);
-      filename = track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.wav`;
-      contentType = filename.toLowerCase().endsWith('.flac') ? 'audio/flac' : 'audio/wav';
+      filename = track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`;
+      contentType = 'audio/mpeg';
     }
   } else if (normAssetType === 'document') {
     if (documentId && release.documents && release.documents.length > 0) {
@@ -862,7 +860,7 @@ apiRouter.get('/releases/:id/download-track/:trackId', (req: Request, res: Respo
     const filePath = path.join(AUDIO_DIR, filename);
 
     if (fs.existsSync(filePath)) {
-      return res.download(filePath, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.wav`);
+      return res.download(filePath, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`);
     }
     return res.status(404).json({ error: 'The requested lossless audio file no longer exists on the server.' });
   });
@@ -1052,7 +1050,7 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
     return res.status(400).json({ error: 'Cover artwork is required.' });
   }
   if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-    return res.status(400).json({ error: 'At least one WAV or FLAC audio track master is required.' });
+    return res.status(400).json({ error: 'At least one MP3 audio track master is required.' });
   }
 
   // Validate lossless audio files & song artist metadata
@@ -1061,8 +1059,8 @@ apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, re
     if (!t.title || !t.title.trim()) {
       return res.status(400).json({ error: 'Every audio track must have a track title.' });
     }
-    if (!t.filename || !/\.(wav|flac)$/i.test(t.filename)) {
-      return res.status(400).json({ error: `Track "${t.title}" must be a WAV or FLAC audio file.` });
+    if (!t.filename || !/\.mp3$/i.test(t.filename)) {
+      return res.status(400).json({ error: `Track "${t.title}" must be an MP3 audio file.` });
     }
 
     if ((releaseType === 'EP' || releaseType === 'Album')) {

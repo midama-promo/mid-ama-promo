@@ -22,7 +22,7 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
       title: 'Upload & Submit',
       subtitle: 'Strict Industry Standards',
       description:
-        'Submit full metadata, primary and featured artists, high-definition square artwork (3000×3000 to 4000×4000px), and lossless WAV or FLAC audio masters.',
+        'Submit full metadata, primary and featured artists, high-definition square artwork (3000×3000 to 4000×4000px), and MP3 audio masters.',
       highlight: 'Real-time Validation Checks',
     },
     {

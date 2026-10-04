@@ -104,7 +104,7 @@ export const Footer: React.FC<FooterProps> = ({
                       <span>Sign In</span>
                     </button>
                   </li>
-                  {onOpenRegister && <li><button onClick={onOpenRegister} className="hover:text-white transition-colors">Register Artist</button></li>}
+                  {onOpenRegister && <li><button onClick={onOpenRegister} className="hover:text-white transition-colors">Sign Up</button></li>}
                   <li>
                     <button onClick={onOpenGetStarted} className="text-red-400 hover:text-red-300 font-semibold transition-colors">
                       Submit / Get Started
@@ -126,7 +126,7 @@ export const Footer: React.FC<FooterProps> = ({
               Compliance
             </h4>
             <p className="text-[11px] text-neutral-400 leading-normal">
-              Audio: Lossless WAV or FLAC masters only.
+              Audio: MP3 masters only.
             </p>
             <p className="text-[11px] text-neutral-400 leading-normal">
               Artwork: 3000×3000 to 4000×4000 pixels square JPG/PNG.

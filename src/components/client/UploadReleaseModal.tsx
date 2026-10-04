@@ -748,19 +748,18 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setTracks(reordered);
   };
 
-  // Handle Track Audio Master Upload (WAV/FLAC only)
+  // Handle Track Audio Master Upload (MP3 only)
   const handleTrackFileChange = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Strict validation: only lossless WAV/FLAC masters
+    // Strict validation: only MP3 audio masters
     const lowerName = file.name.toLowerCase();
-    const isWav = lowerName.endsWith('.wav') || file.type.includes('audio/wav') || file.type.includes('audio/x-wav');
-    const isFlac = lowerName.endsWith('.flac') || file.type.includes('audio/flac') || file.type.includes('audio/x-flac');
-    if (!isWav && !isFlac) {
+    const isMp3 = lowerName.endsWith('.mp3') || file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.type === 'audio/x-mp3';
+    if (!isMp3) {
       const copy = [...tracks];
       copy[index].uploadError =
-        'Invalid audio format. Only WAV and FLAC master files are accepted.';
+        'Invalid audio format. Only MP3 master audio files are accepted.';
       copy[index].uploadedSuccess = false;
       setTracks(copy);
       return;
@@ -893,7 +892,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         return false;
       }
       if (!t.fileUrl) {
-        setSubmitError(`Please upload the WAV or FLAC audio master for Track #${i + 1} (${t.title || 'Untitled'}).`);
+        setSubmitError(`Please upload the MP3 audio master for Track #${i + 1} (${t.title || 'Untitled'}).`);
         return false;
       }
       if (t.uploadError) {
@@ -1037,7 +1036,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           trackNumber: idx + 1,
           title: t.title.trim(),
           version: t.version || 'Original Mix',
-          filename: t.filename || `track_${idx + 1}.wav`,
+          filename: t.filename || `track_${idx + 1}.mp3`,
           storedFilename: t.storedFilename,
           fileUrl: t.fileUrl!,
           fileSize: t.fileSize || 0,
@@ -1168,7 +1167,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             {[
               { num: 1, label: 'Metadata & Credits' },
               { num: 2, label: 'Cover Artwork' },
-              { num: 3, label: 'Audio Masters (WAV / FLAC)' },
+              { num: 3, label: 'Audio Masters (MP3)' },
               { num: 4, label: 'Final Review & Submit' },
             ].map((s) => (
               <div
@@ -1779,12 +1778,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-bold text-white mb-0.5 font-['Space_Grotesk']">
-                        Master Audio Track Upload (WAV / FLAC Only)
+                        Master Audio Track Upload (MP3 Only)
                       </h3>
                       <p className="text-xs text-neutral-400">
                         {releaseType === 'EP' || releaseType === 'Album'
                           ? 'For Episode / Album releases, specify artist information and a lossless audio master for every song.'
-                          : 'Upload your lossless WAV or FLAC audio master file.'}
+                          : 'Upload your MP3 audio master file.'}
                       </p>
                     </div>
 
@@ -2028,11 +2027,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           <label className="block text-[11px] font-semibold text-neutral-300 mb-1.5 flex items-center justify-between">
                             <span className="flex items-center gap-1.5">
                               <Music className="w-3.5 h-3.5 text-red-500" />
-                              <span>Master Audio Track (.wav or .flac only)</span>
+                              <span>Master Audio Track (.mp3 only)</span>
                               <span className="text-red-500">*</span>
                             </span>
                             <span className="text-[10px] font-mono text-neutral-500">
-                              Lossless WAV / FLAC · Max 500MB
+                              MP3 · Max 100MB
                             </span>
                           </label>
 
@@ -2045,15 +2044,15 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 <span className="text-xs font-bold text-white block group-hover:text-red-400 transition-colors">
                                   {track.filename
                                     ? `Selected: ${track.filename}`
-                                    : 'Click to select or drop WAV / FLAC audio file'}
+                                    : 'Click to select or drop MP3 audio file'}
                                 </span>
                                 <span className="text-[11px] text-neutral-400 block mt-0.5">
-                                  Only .wav and .flac master audio files are accepted.
+                                  Only .mp3 master audio files are accepted.
                                 </span>
                               </div>
                               <input
                                 type="file"
-                                accept=".wav,.flac,audio/wav,audio/flac"
+                                accept=".mp3,audio/mpeg,audio/mp3"
                                 onChange={(e) => handleTrackFileChange(idx, e)}
                                 className="hidden"
                               />
@@ -2064,7 +2063,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-950 border border-emerald-800 text-emerald-300 text-xs font-semibold rounded-md shrink-0">
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Lossless Audio Ready</span>
+                                    <span>MP3 Audio Ready</span>
                                   </span>
                                   <span className="text-xs font-mono text-neutral-200 truncate">
                                     {track.filename}
@@ -2074,7 +2073,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                   <span>Replace</span>
                                   <input
                                     type="file"
-                                    accept=".wav,.flac,audio/wav,audio/flac"
+                                    accept=".mp3,audio/mpeg,audio/mp3"
                                     onChange={(e) => handleTrackFileChange(idx, e)}
                                     className="hidden"
                                   />
@@ -2261,7 +2260,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         className="mt-0.5 rounded border-neutral-800 text-red-600 cursor-pointer"
                       />
                       <label htmlFor="confirmAccuracy" className="text-xs text-neutral-200 cursor-pointer">
-                        <strong>I hereby certify and confirm:</strong> All audio files are finalized lossless WAV or FLAC masters
+                        <strong>I hereby certify and confirm:</strong> All audio files are finalized MP3 masters
                         masters, cover artwork is square 1:1 original art, artist links are accurate, and I own
                         or control 100% of the distribution and master rights.
                       </label>

@@ -133,7 +133,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
 
                 {onOpenRegister && (
-                  <button onClick={onOpenRegister} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-300 hover:text-white transition-colors">Register Artist</button>
+                  <button onClick={onOpenRegister} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-300 hover:text-white transition-colors">Sign Up</button>
                 )}
 
                 <button
@@ -234,7 +234,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
                 {onOpenRegister && (
                   <button onClick={() => { setMobileMenuOpen(false); onOpenRegister(); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white rounded-lg text-xs font-semibold">
-                    Register Artist
+                    Sign Up
                   </button>
                 )}
                 <button
