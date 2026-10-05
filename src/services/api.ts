@@ -346,7 +346,7 @@ class ApiService {
     return this.request<{ clients: User[] }>('/api/admin/clients');
   }
 
-  async registerClient(payload: { email: string; name: string; phone?: string; country?: string }): Promise<{ message: string; client: User }> {
+  async registerClient(payload: { email: string; name: string; realFirstName?: string; realSurname?: string; phone?: string; country?: string }): Promise<{ message: string; client: User }> {
     return this.request<{ message: string; client: User }>('/api/admin/clients/register', {
       method: 'POST',
       body: JSON.stringify(payload),

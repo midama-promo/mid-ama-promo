@@ -218,6 +218,7 @@ function MainContent() {
         {/* Hero Section */}
         <Hero
           onOpenSignIn={() => openAuth('signin')}
+          onOpenRegister={() => openAuth('register')}
           onOpenGetStarted={() => {
             if (user) {
               setCurrentView(user.role === 'admin' ? 'admin' : 'client');

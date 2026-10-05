@@ -1532,7 +1532,7 @@ apiRouter.get('/admin/clients', authMiddleware, adminOnly, (_req: AuthenticatedR
 
 // Admin Register Client Manually (Client creates their password upon first visit, or admin sets it)
 apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
-  const { email, name, phone, country } = req.body;
+  const { email, name, realFirstName, realSurname, phone, country } = req.body;
 
   if (!email || !email.includes('@')) {
     return res.status(400).json({ error: 'Valid client email address is required.' });
@@ -1540,6 +1540,8 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Artist or Record Label name is required.' });
   }
+  const normalizedFirstName = typeof realFirstName === 'string' ? realFirstName.trim() : '';
+  const normalizedSurname = typeof realSurname === 'string' ? realSurname.trim() : '';
 
   const existing = db.findUserByEmail(email.trim());
   if (existing) {
@@ -1554,6 +1556,9 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
     id: `usr_client_${Date.now()}`,
     email: email.trim().toLowerCase(),
     name: name.trim(),
+    artistName: name.trim(),
+    realFirstName: normalizedFirstName || undefined,
+    realSurname: normalizedSurname || undefined,
     role: 'client',
     passwordHash,
     status,
@@ -1567,6 +1572,9 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
       const authUser = remoteFindAuthUserByEmail(newClient.email) || remoteCreateAuthUser(newClient.email, generateToken(), {
         role: 'client',
         name: newClient.name,
+        real_first_name: newClient.realFirstName || '',
+        real_surname: newClient.realSurname || '',
+        artist_name: newClient.artistName || newClient.name,
         midama_user_id: newClient.id,
       });
       newClient.authUserId = authUser.id;
@@ -1627,7 +1635,7 @@ apiRouter.post('/admin/clients/:id/access-session', authMiddleware, adminOnly, (
 
 // Admin update client status (enable/disable)
 apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
-  const { status, name, phone } = req.body;
+  const { status, name, realFirstName, realSurname, phone } = req.body;
   const client = db.findUserById(req.params.id);
 
   if (!client || client.role !== 'client') {
@@ -1638,7 +1646,9 @@ apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: Authentic
   if (status && ['active', 'disabled', 'pending_activation'].includes(status)) {
     updates.status = status;
   }
-  if (name) updates.name = name.trim();
+  if (name) { updates.name = name.trim(); updates.artistName = name.trim(); }
+  if (realFirstName !== undefined) updates.realFirstName = typeof realFirstName === 'string' ? realFirstName.trim() : '';
+  if (realSurname !== undefined) updates.realSurname = typeof realSurname === 'string' ? realSurname.trim() : '';
   if (phone !== undefined) updates.phone = phone.trim();
 
   const updated = db.updateUser(client.id, updates);

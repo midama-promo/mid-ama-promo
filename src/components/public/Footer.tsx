@@ -1,5 +1,6 @@
 import React from 'react';
 import { Logo } from '../common/Logo';
+import { UserPlus } from 'lucide-react';
 import { Mail, Shield, Lock, ArrowUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -106,8 +107,8 @@ export const Footer: React.FC<FooterProps> = ({
                   </li>
                   {onOpenRegister && <li><button onClick={onOpenRegister} className="hover:text-white transition-colors">Sign Up</button></li>}
                   <li>
-                    <button onClick={onOpenGetStarted} className="text-red-400 hover:text-red-300 font-semibold transition-colors">
-                      Submit / Get Started
+                    <button onClick={onOpenRegister || onOpenGetStarted} className="text-red-400 hover:text-red-300 font-semibold transition-colors">
+                      Sign Up
                     </button>
                   </li>
                 </>

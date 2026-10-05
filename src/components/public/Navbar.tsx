@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Logo } from '../common/Logo';
 import { useAuth } from '../../context/AuthContext';
-import { User, LogIn, UploadCloud, Menu, X, Shield, Bell, Disc3 } from 'lucide-react';
+import { User, UserPlus, LogIn, UploadCloud, Menu, X, Shield, Bell, Disc3 } from 'lucide-react';
 
 interface NavbarProps {
   onOpenSignIn: () => void;
@@ -137,11 +137,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
 
                 <button
-                  onClick={onOpenGetStarted}
+                  onClick={onOpenRegister || onOpenGetStarted}
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all hover:shadow-red-900/20 active:scale-95"
                 >
-                  <UploadCloud className="w-4 h-4" />
-                  <span>Submit / Get Started</span>
+                  <UserPlus className="w-4 h-4" />
+                  <span>Sign Up</span>
                 </button>
               </>
             )}
@@ -240,12 +240,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    onOpenGetStarted();
+                    (onOpenRegister || onOpenGetStarted)();
                   }}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold shadow"
                 >
-                  <UploadCloud className="w-4 h-4" />
-                  Submit / Get Started
+                  <UserPlus className="w-4 h-4" />
+                  Sign Up
                 </button>
               </>
             )}

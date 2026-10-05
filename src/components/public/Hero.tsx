@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { UploadCloud, LogIn, Mail, ArrowRight, CheckCircle2, Search, Shield, Music, Disc } from 'lucide-react';
+import { UserPlus, LogIn, Mail, ArrowRight, CheckCircle2, Search, Shield, Music, Disc } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface HeroProps {
   onOpenSignIn: () => void;
+  onOpenRegister?: () => void;
   onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onLookupRef: (ref: string) => void;
@@ -11,6 +12,7 @@ interface HeroProps {
 
 export const Hero: React.FC<HeroProps> = ({
   onOpenSignIn,
+  onOpenRegister,
   onOpenGetStarted,
   onOpenContact,
   onLookupRef,
@@ -59,11 +61,11 @@ export const Hero: React.FC<HeroProps> = ({
           {/* Primary Action Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
             <button
-              onClick={onOpenGetStarted}
+              onClick={onOpenRegister || onOpenGetStarted}
               className="flex items-center gap-2.5 px-7 py-3.5 bg-red-600 hover:bg-red-500 active:scale-98 text-white font-bold text-sm sm:text-base rounded-xl shadow-lg shadow-red-600/20 transition-all"
             >
-              <UploadCloud className="w-5 h-5" />
-              <span>Submit / Get Started</span>
+              <UserPlus className="w-5 h-5" />
+              <span>Sign Up</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </button>
 

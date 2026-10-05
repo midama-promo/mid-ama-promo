@@ -80,12 +80,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Manual Client Registration modal
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [regName, setRegName] = useState('');
+  const [regFirstName, setRegFirstName] = useState('');
+  const [regSurname, setRegSurname] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regCountry, setRegCountry] = useState('South Africa');
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [copiedInstructions, setCopiedInstructions] = useState(false);
   const [regSuccessResult, setRegSuccessResult] = useState<{ client: User } | null>(null);
+  const [editingClient, setEditingClient] = useState<User | null>(null);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editSurname, setEditSurname] = useState('');
+  const [editArtistName, setEditArtistName] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   // Asset download state
   const [downloadingArtworkId, setDownloadingArtworkId] = useState<string | null>(null);
@@ -283,6 +290,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const res = await api.registerClient({
         email: regEmail.trim(),
         name: regName.trim(),
+        realFirstName: regFirstName.trim() || undefined,
+        realSurname: regSurname.trim() || undefined,
         phone: regPhone.trim() || undefined,
         country: regCountry.trim() || 'South Africa',
       });
@@ -293,12 +302,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       setClients([res.client, ...clients]);
       setRegName('');
+      setRegFirstName('');
+      setRegSurname('');
       setRegEmail('');
       setRegPhone('');
     } catch (err: any) {
       alert(err.message || 'Failed to register client.');
     } finally {
       setRegSubmitting(false);
+    }
+  };
+
+  const openEditClient = (client: User) => {
+    setEditingClient(client);
+    setEditFirstName(client.realFirstName || '');
+    setEditSurname(client.realSurname || '');
+    setEditArtistName(client.artistName || client.name || '');
+  };
+
+  const saveClientDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClient) return;
+    if (!editFirstName.trim() || !editSurname.trim() || !editArtistName.trim()) {
+      alert('First name, surname, and artist / label name are required.');
+      return;
+    }
+    try {
+      setEditSaving(true);
+      const res = await api.updateClient(editingClient.id, {
+        realFirstName: editFirstName.trim(),
+        realSurname: editSurname.trim(),
+        artistName: editArtistName.trim(),
+        name: editArtistName.trim(),
+      });
+      setClients(prev => prev.map(c => c.id === res.client.id ? { ...c, ...res.client } : c));
+      if (selectedClientForView?.id === res.client.id) setSelectedClientForView(prev => prev ? { ...prev, ...res.client } : prev);
+      setEditingClient(null);
+    } catch (err: any) {
+      alert(err.message || 'Could not update client details.');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -770,7 +813,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <table className="w-full text-left text-xs">
                     <thead className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 font-mono uppercase text-[10px]">
                       <tr>
-                        <th className="py-3 px-4">Artist / Label Name</th>
+                        <th className="py-3 px-4">Client Name & Surname</th>
+                        <th className="py-3 px-4">Artist / Label</th>
                         <th className="py-3 px-4">Email Address</th>
                         <th className="py-3 px-4">Account Status</th>
                         <th className="py-3 px-4">Submitted Releases</th>
@@ -782,12 +826,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {clients.map((c) => (
                         <tr key={c.id} className="hover:bg-neutral-800/40 transition-colors">
                           <td className="py-3.5 px-4 font-bold text-white">
-                            {c.name}
+                            {c.realFirstName || c.realSurname ? `${c.realFirstName || ''} ${c.realSurname || ''}`.trim() : 'Name not assigned'}
                             {c.country && (
                               <span className="text-[10px] text-neutral-500 font-normal block font-mono">
                                 {c.country}
                               </span>
                             )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-neutral-200">
+                            <span className="font-semibold">{c.artistName || c.name}</span>
                           </td>
 
                           <td className="py-3.5 px-4 font-mono text-neutral-300">
@@ -826,6 +874,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditClient(c)}
+                                className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-white text-[11px] rounded flex items-center gap-1 font-semibold transition-colors cursor-pointer"
+                                title="Edit client name and surname"
+                              >
+                                <Sliders className="w-3 h-3" />
+                                Edit
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleAccessClientAccount(c)}
@@ -1003,6 +1060,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   Register the client's email. They will sign in via <strong>Email OTP</strong> using a single-use code — no password is required.
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-300 mb-1.5">First Name <span className="text-red-500">*</span></label>
+                    <input type="text" required value={regFirstName} onChange={(e) => setRegFirstName(e.target.value)} placeholder="First name" className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Surname <span className="text-red-500">*</span></label>
+                    <input type="text" required value={regSurname} onChange={(e) => setRegSurname(e.target.value)} placeholder="Surname" className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600" />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
                     Artist / Label Name <span className="text-red-500">*</span>
@@ -1055,6 +1123,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </form>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {editingClient && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-base font-bold text-white">Edit Client Details</h3>
+                <p className="text-[11px] text-neutral-500 mt-1">{editingClient.email}</p>
+              </div>
+              <button type="button" onClick={() => setEditingClient(null)} className="text-neutral-400 hover:text-white">✕</button>
+            </div>
+            <form onSubmit={saveClientDetails} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1.5">First Name</label>
+                  <input required value={editFirstName} onChange={e => setEditFirstName(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Surname</label>
+                  <input required value={editSurname} onChange={e => setEditSurname(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Artist / Label Name</label>
+                <input required value={editArtistName} onChange={e => setEditArtistName(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setEditingClient(null)} className="flex-1 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-semibold">Cancel</button>
+                <button type="submit" disabled={editSaving} className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold">{editSaving ? 'Saving...' : 'Save Details'}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
