@@ -29,10 +29,11 @@ import {
   UploadCloud,
   Plus,
   Link2,
-  Trash2
+  Trash2,
+  Wallet
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { Release, User, Enquiry, AdminStats, ReleaseStatus } from '../../types';
+import { Release, User, Enquiry, AdminStats, ReleaseStatus, WithdrawalRequest } from '../../types';
 import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { CatalogueEntryModal } from './CatalogueEntryModal';
@@ -55,7 +56,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const { user, logout, accessClientAccount } = useAuth();
   const [accessingClientId, setAccessingClientId] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'settings'>('releases');
+  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'royalties' | 'settings'>('releases');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [releases, setReleases] = useState<Release[]>([]);
   const [clients, setClients] = useState<User[]>([]);
@@ -100,6 +101,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [preSaveLabel, setPreSaveLabel] = useState('Pre-save');
   const [preSaveUrl, setPreSaveUrl] = useState('');
   const [preSaveSaving, setPreSaveSaving] = useState(false);
+  const [royaltyRelease, setRoyaltyRelease] = useState<Release | null>(null);
+  const [royaltyAmountInput, setRoyaltyAmountInput] = useState('0');
+  const [royaltySaving, setRoyaltySaving] = useState(false);
+  const [royaltyWithdrawals, setRoyaltyWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [withdrawalProcessingId, setWithdrawalProcessingId] = useState<string | null>(null);
 
   const handleReleaseStatusUpdated = (updated: Release) => {
     setReleases(prev => prev.map(r => r.id === updated.id ? updated : r));
@@ -158,6 +164,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       alert(err.message || 'Could not remove the pre-save link.');
     } finally {
       setPreSaveSaving(false);
+    }
+  };
+
+  const openRoyaltyEditor = (rel: Release) => {
+    setRoyaltyRelease(rel);
+    setRoyaltyAmountInput(Number(rel.royaltyAmount || 0).toFixed(2));
+  };
+
+  const saveRoyaltyAmount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!royaltyRelease) return;
+    const amount = Number(royaltyAmountInput);
+    if (!Number.isFinite(amount) || amount < 0) { alert('Enter a valid non-negative Rand amount.'); return; }
+    try {
+      setRoyaltySaving(true);
+      const result = await api.updateReleaseRoyalty(royaltyRelease.id, amount);
+      setReleases(prev => prev.map(r => r.id === result.release.id ? result.release : r));
+      setRoyaltyRelease(null);
+    } catch (err: any) {
+      alert(err.message || 'Could not update the release royalty.');
+    } finally {
+      setRoyaltySaving(false);
+    }
+  };
+
+  const processWithdrawal = async (withdrawal: WithdrawalRequest, status: 'paid' | 'rejected') => {
+    if (status === 'paid' && !window.confirm(`Confirm that you have sent R${withdrawal.amount.toFixed(2)} to ${withdrawal.accountHolder}?`)) return;
+    const adminNote = status === 'paid' ? 'Payment sent using the banking details supplied by the client.' : 'Withdrawal rejected by Mid-Ama Promo administrator.';
+    try {
+      setWithdrawalProcessingId(withdrawal.id);
+      const result = await api.updateRoyaltyWithdrawal(withdrawal.id, { status, adminNote });
+      setRoyaltyWithdrawals(prev => prev.map(w => w.id === result.withdrawal.id ? result.withdrawal : w));
+    } catch (err: any) {
+      alert(err.message || 'Could not update the withdrawal request.');
+    } finally {
+      setWithdrawalProcessingId(null);
     }
   };
 
@@ -243,12 +285,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const [statsRes, relRes, cliRes, enqRes, catRes] = await Promise.all([
+      const [statsRes, relRes, cliRes, enqRes, catRes, royaltyRes] = await Promise.all([
         api.getAdminStats(),
         api.getReleases(),
         api.getAdminClients(),
         api.getAdminEnquiries(),
         api.getAdminCatalogue(),
+        api.getAdminRoyaltyWithdrawals(),
       ]);
 
       setStats(statsRes.stats);
@@ -256,6 +299,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setClients(cliRes.clients);
       setEnquiries(enqRes.enquiries);
       setCatalogueEntries(catRes.entries);
+      setRoyaltyWithdrawals(royaltyRes.withdrawals || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load administrative data.');
     } finally {
@@ -545,6 +589,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('royalties')}
+            className={`pb-3 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'royalties' ? 'border-red-600 text-white font-bold' : 'border-transparent text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Wallet className="w-4 h-4 text-emerald-500" />
+            <span>Royalties & Withdrawals ({royaltyWithdrawals.filter(w => w.status === 'pending').length})</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('settings')}
             className={`pb-3 border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === 'settings' ? 'border-red-600 text-white font-bold' : 'border-transparent text-neutral-400 hover:text-white'
@@ -586,6 +640,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
               {catalogueEntries.length === 0 ? <div className="p-10 text-center text-xs text-neutral-500">No catalogue entries yet. Create the first legacy catalogue record above.</div> : <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 font-mono uppercase text-[10px]"><tr><th className="p-3">Song</th><th className="p-3">Client</th><th className="p-3">Identifiers</th><th className="p-3">Original Release</th><th className="p-3">Distribution</th><th className="p-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-neutral-800/60">{catalogueEntries.map(e => <tr key={e.id} className="hover:bg-neutral-800/30"><td className="p-3"><b className="text-white">{e.title || e.release?.title || 'Untitled'}</b><span className="block text-[10px] text-neutral-500">{(e.primaryArtists || e.release?.primaryArtists || []).join(', ')}</span></td><td className="p-3 text-neutral-300">{e.client?.name}<span className="block text-[10px] text-neutral-500">{e.client?.email}</span></td><td className="p-3 font-mono text-[10px] text-neutral-400">{e.isrc || 'No ISRC'}<span className="block">{e.upc || 'No UPC'}</span></td><td className="p-3 text-neutral-400">{e.catalogueReleaseDate ? new Date(e.catalogueReleaseDate).toLocaleDateString() : '—'}</td><td className="p-3"><select value={e.distributionStatus || 'Not Queued'} onChange={async ev => { try { const res = await api.updateCatalogueEntry(e.id, { distributionStatus: ev.target.value }); setCatalogueEntries(prev => prev.map(x => x.id === e.id ? { ...x, ...res.entry } : x)); } catch(err:any) { alert(err.message || 'Could not update distribution status.'); } }} className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-[11px] text-white"><option>Not Queued</option><option>Ready for SoundBlast</option><option>Submitted to SoundBlast</option><option>Distributed</option><option>Rejected</option></select></td><td className="p-3 text-right"><button onClick={() => openEditCatalogue(e)} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-[11px] font-bold text-white">Edit</button></td></tr>)}</tbody></table></div>}
             </div>
+          </div>
+        )}
+
+        {/* TAB: ROYALTIES & WITHDRAWALS */}
+        {activeTab === 'royalties' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-base font-bold text-white font-['Space_Grotesk'] flex items-center gap-2"><Wallet className="w-4 h-4 text-emerald-400" /> Royalties & Withdrawal Requests</h3>
+              <p className="text-xs text-neutral-400 mt-1">Set each release's royalty value from the Releases tab. Client withdrawal requests and banking details appear below.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl"><span className="text-[10px] uppercase text-neutral-500 block">Total Assigned Earnings</span><strong className="text-xl text-emerald-400">R{releases.reduce((sum, r) => sum + Number(r.royaltyAmount || 0), 0).toFixed(2)}</strong></div>
+              <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl"><span className="text-[10px] uppercase text-neutral-500 block">Pending Withdrawals</span><strong className="text-xl text-amber-400">R{royaltyWithdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + w.amount, 0).toFixed(2)}</strong></div>
+              <div className="p-4 bg-neutral-900/60 border border-neutral-800 rounded-xl"><span className="text-[10px] uppercase text-neutral-500 block">Paid Withdrawals</span><strong className="text-xl text-blue-400">R{royaltyWithdrawals.filter(w => w.status === 'paid').reduce((sum, w) => sum + w.amount, 0).toFixed(2)}</strong></div>
+            </div>
+
+            {royaltyWithdrawals.length === 0 ? (
+              <div className="p-12 text-center bg-neutral-900/30 border border-dashed border-neutral-800 rounded-2xl text-xs text-neutral-500">No withdrawal requests have been submitted yet.</div>
+            ) : (
+              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 font-mono uppercase text-[10px]"><tr><th className="p-3">Client</th><th className="p-3">Amount</th><th className="p-3">Banking Details</th><th className="p-3">Requested</th><th className="p-3">Status</th><th className="p-3 text-right">Action</th></tr></thead>
+                    <tbody className="divide-y divide-neutral-800/60">
+                      {royaltyWithdrawals.map(w => (
+                        <tr key={w.id} className="hover:bg-neutral-800/30 align-top">
+                          <td className="p-3"><strong className="text-white">{w.clientName}</strong><span className="block text-[10px] text-neutral-500 font-mono">{w.userEmail}</span></td>
+                          <td className="p-3"><strong className="text-emerald-400">R{w.amount.toFixed(2)}</strong></td>
+                          <td className="p-3 min-w-[260px] text-[11px] text-neutral-300 leading-relaxed"><div><b>Bank:</b> {w.bankName}</div><div><b>Account holder:</b> {w.accountHolder}</div><div><b>Account:</b> {w.accountNumber}</div><div><b>Branch:</b> {w.branchCode} · <b>Type:</b> {w.accountType}</div>{w.notes && <div className="mt-1 text-neutral-500"><b>Note:</b> {w.notes}</div>}<div className="mt-2 text-[9px] text-red-400">Client confirmed banking details and liability acknowledgement.</div></td>
+                          <td className="p-3 text-[10px] text-neutral-400 whitespace-nowrap">{new Date(w.createdAt).toLocaleString()}</td>
+                          <td className="p-3"><span className={`text-[10px] font-bold px-2 py-1 rounded border inline-block ${w.status === 'paid' ? 'text-emerald-400 bg-emerald-950/40 border-emerald-800' : w.status === 'pending' ? 'text-amber-400 bg-amber-950/40 border-amber-800' : 'text-red-400 bg-red-950/40 border-red-800'}`}>{w.status === 'paid' ? 'Paid' : w.status === 'pending' ? 'Pending' : 'Rejected'}</span></td>
+                          <td className="p-3 text-right whitespace-nowrap">{w.status === 'pending' ? <div className="flex justify-end gap-2"><button type="button" disabled={withdrawalProcessingId === w.id} onClick={() => processWithdrawal(w, 'paid')} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg text-[10px] font-bold">{withdrawalProcessingId === w.id ? 'Saving...' : 'Mark Paid'}</button><button type="button" disabled={withdrawalProcessingId === w.id} onClick={() => processWithdrawal(w, 'rejected')} className="px-3 py-1.5 bg-red-950/50 hover:bg-red-900/70 border border-red-800 text-red-300 rounded-lg text-[10px] font-bold">Reject</button></div> : <span className="text-[10px] text-neutral-600">Processed</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -679,6 +773,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <th className="py-3 px-4">Genre & Type</th>
                         <th className="py-3 px-4">Submission Date</th>
                         <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Royalty</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -734,6 +829,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border inline-block ${getStatusBadge(rel.status)}`}>
                               {rel.status}
                             </span>
+                          </td>
+
+                          <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex flex-col gap-1.5">
+                              <span className="font-bold text-emerald-400">R{Number(rel.royaltyAmount || 0).toFixed(2)}</span>
+                              <button type="button" onClick={() => openRoyaltyEditor(rel)} className="w-fit px-2.5 py-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800 text-emerald-300 rounded-lg text-[10px] font-bold">Edit Royalty</button>
+                            </div>
                           </td>
 
                           <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -1106,6 +1208,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {preSaveSaving ? 'Saving...' : 'Add Pre-save Link'}
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT RELEASE ROYALTY */}
+      {royaltyRelease && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl p-5">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div><h3 className="text-base font-bold text-white">Set Release Royalty</h3><p className="text-[11px] text-neutral-500 mt-1">{royaltyRelease.title} · {royaltyRelease.refNumber}</p></div>
+              <button type="button" onClick={() => setRoyaltyRelease(null)} disabled={royaltySaving} className="text-neutral-400 hover:text-white">✕</button>
+            </div>
+            <form onSubmit={saveRoyaltyAmount} className="space-y-4">
+              <label className="block space-y-1.5"><span className="text-xs font-semibold text-neutral-300">Royalty Value (ZAR)</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">R</span><input autoFocus required type="number" min="0" step="0.01" value={royaltyAmountInput} onChange={e => setRoyaltyAmountInput(e.target.value)} className="field pl-8" /></div></label>
+              <p className="text-[11px] text-neutral-500">This amount becomes part of the client's total royalty earnings and is included in the amount available for withdrawal.</p>
+              <div className="flex gap-3"><button type="button" onClick={() => setRoyaltyRelease(null)} disabled={royaltySaving} className="flex-1 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-bold">Cancel</button><button type="submit" disabled={royaltySaving} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold">{royaltySaving ? 'Saving...' : 'Save Royalty'}</button></div>
             </form>
           </div>
         </div>

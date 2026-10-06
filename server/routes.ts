@@ -25,6 +25,7 @@ import type {
   ReleaseStatus,
   ReleaseDocumentItem,
   CatalogueEntry,
+  WithdrawalRequest,
 } from './db.ts';
 import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp, verifyAccessToken, isSupabaseConfigured } from './otp.ts';
@@ -932,6 +933,23 @@ apiRouter.get('/releases', authMiddleware, (req: AuthenticatedRequest, res: Resp
   res.json({ releases: clientReleases });
 });
 
+// Admin-controlled royalty value for each release.
+apiRouter.patch('/releases/:id/royalty', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const amount = Number(req.body?.amount);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 999999999.99) {
+    return res.status(400).json({ error: 'Royalty amount must be a valid non-negative Rand value.' });
+  }
+
+  const rounded = Math.round((amount + Number.EPSILON) * 100) / 100;
+  const updated = db.updateRelease(existing.id, { royaltyAmount: rounded });
+  if (!updated) return res.status(404).json({ error: 'Release could not be updated.' });
+
+  res.json({ message: `Royalty for ${updated.title} updated to R${rounded.toFixed(2)}.`, release: updated });
+});
+
 apiRouter.get('/releases/:id', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
   const release = db.findReleaseById(req.params.id);
@@ -1487,6 +1505,94 @@ apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: Aut
     authConfigured: authOk,
     persistence: db.getPersistenceInfo(),
   });
+});
+
+function calculateRoyaltySummary(userId: string) {
+  const releases = db.getReleasesByUserId(userId);
+  const totalEarnings = releases.reduce((sum, r) => sum + Math.max(0, Number(r.royaltyAmount || 0)), 0);
+  const withdrawals = db.getWithdrawalsByUserId(userId);
+  const pendingAmount = withdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + w.amount, 0);
+  const paidAmount = withdrawals.filter(w => w.status === 'paid').reduce((sum, w) => sum + w.amount, 0);
+  const availableAmount = Math.max(0, totalEarnings - pendingAmount - paidAmount);
+  return {
+    totalEarnings: Number(totalEarnings.toFixed(2)),
+    pendingAmount: Number(pendingAmount.toFixed(2)),
+    paidAmount: Number(paidAmount.toFixed(2)),
+    availableAmount: Number(availableAmount.toFixed(2)),
+  };
+}
+
+apiRouter.get('/royalties/summary', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  const summary = calculateRoyaltySummary(userId);
+  const withdrawals = db.getWithdrawalsByUserId(userId);
+  res.json({ ...summary, withdrawals });
+});
+
+apiRouter.post('/royalties/withdrawals', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user!.role !== 'client') return res.status(403).json({ error: 'Only client accounts can request a royalty withdrawal.' });
+
+  const { amount, bankName, accountHolder, accountNumber, branchCode, accountType, notes, liabilityAcknowledged } = req.body || {};
+  const normalizedAmount = Number(amount);
+  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) return res.status(400).json({ error: 'Enter a valid withdrawal amount greater than R0.00.' });
+  if (!String(bankName || '').trim()) return res.status(400).json({ error: 'Bank name is required.' });
+  if (!String(accountHolder || '').trim()) return res.status(400).json({ error: 'Account holder name is required.' });
+  if (!/^[0-9]{4,20}$/.test(String(accountNumber || '').replace(/\s+/g, ''))) return res.status(400).json({ error: 'Account number must contain 4–20 digits.' });
+  if (!/^[0-9]{4,10}$/.test(String(branchCode || '').replace(/\s+/g, ''))) return res.status(400).json({ error: 'Branch code must contain 4–10 digits.' });
+  if (!['Cheque', 'Savings', 'Transmission', 'Other'].includes(accountType)) return res.status(400).json({ error: 'Select a valid account type.' });
+  if (liabilityAcknowledged !== true) return res.status(400).json({ error: 'You must confirm that the banking details are correct.' });
+
+  const summary = calculateRoyaltySummary(req.user!.id);
+  const roundedAmount = Math.round((normalizedAmount + Number.EPSILON) * 100) / 100;
+  if (roundedAmount > summary.availableAmount) return res.status(400).json({ error: `The maximum available amount is R${summary.availableAmount.toFixed(2)}.` });
+
+  const withdrawal: WithdrawalRequest = {
+    id: `wd_${Date.now()}_${crypto.randomBytes(5).toString('hex')}`,
+    userId: req.user!.id,
+    userEmail: req.user!.email,
+    clientName: req.user!.name,
+    amount: roundedAmount,
+    currency: 'ZAR',
+    bankName: String(bankName).trim(),
+    accountHolder: String(accountHolder).trim(),
+    accountNumber: String(accountNumber).replace(/\s+/g, ''),
+    branchCode: String(branchCode).replace(/\s+/g, ''),
+    accountType,
+    notes: String(notes || '').trim() || undefined,
+    liabilityAcknowledged: true,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  let created: WithdrawalRequest;
+  try {
+    created = db.createWithdrawal(withdrawal);
+  } catch (error: any) {
+    return res.status(400).json({ error: error?.message || 'The withdrawal could not be created.' });
+  }
+  const nextSummary = calculateRoyaltySummary(req.user!.id);
+  res.status(201).json({ message: 'Withdrawal request submitted successfully. Your banking details have been sent to Mid-Ama Promo administration.', withdrawal: created, summary: nextSummary });
+});
+
+apiRouter.get('/admin/royalties/withdrawals', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  res.json({ withdrawals: db.getWithdrawals() });
+});
+
+apiRouter.patch('/admin/royalties/withdrawals/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.getWithdrawals().find(w => w.id === req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Withdrawal request not found.' });
+  const status = req.body?.status;
+  if (!['paid', 'rejected'].includes(status)) return res.status(400).json({ error: 'Withdrawal status must be paid or rejected.' });
+  if (existing.status !== 'pending') return res.status(400).json({ error: 'This withdrawal request has already been processed.' });
+
+  const updated = db.updateWithdrawal(existing.id, {
+    status,
+    processedAt: new Date().toISOString(),
+    processedBy: req.user!.email,
+    adminNote: String(req.body?.adminNote || '').trim() || undefined,
+  });
+  if (!updated) return res.status(404).json({ error: 'Withdrawal request could not be updated.' });
+  res.json({ message: status === 'paid' ? 'Withdrawal marked as paid.' : 'Withdrawal rejected. The amount is available to the client again.', withdrawal: updated });
 });
 
 apiRouter.get('/admin/stats', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {

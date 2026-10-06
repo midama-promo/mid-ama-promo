@@ -14,19 +14,21 @@ import {
   Check,
   ExternalLink,
   ChevronRight,
-  Sparkles,
   Layers,
   Calendar,
   Bell,
   Download,
   FileCheck,
   Eye,
-  MessageSquare
+  MessageSquare,
+  Wallet,
+  Banknote
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { Release, ReleaseStatus } from '../../types';
+import { Release, ReleaseStatus, WithdrawalRequest } from '../../types';
 import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
+import { RoyaltyWithdrawalModal } from './RoyaltyWithdrawalModal';
 
 interface ClientDashboardProps {
   onOpenUpload: () => void;
@@ -55,14 +57,19 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const [royaltySummary, setRoyaltySummary] = useState({ totalEarnings: 0, pendingAmount: 0, paidAmount: 0, availableAmount: 0 });
+  const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [withdrawalOpen, setWithdrawalOpen] = useState(false);
 
   const fetchReleases = async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
       setError(null);
-      const [releaseRes, catalogueRes] = await Promise.all([api.getReleases(), api.getClientCatalogue()]);
+      const [releaseRes, catalogueRes, royaltyRes] = await Promise.all([api.getReleases(), api.getClientCatalogue(), api.getRoyaltySummary()]);
       setReleases(releaseRes.releases);
       setCatalogueEntries(catalogueRes.entries);
+      setRoyaltySummary({ totalEarnings: royaltyRes.totalEarnings, pendingAmount: royaltyRes.pendingAmount, paidAmount: royaltyRes.paidAmount, availableAmount: royaltyRes.availableAmount });
+      setWithdrawals(royaltyRes.withdrawals || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load releases.');
     } finally {
@@ -189,17 +196,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <a
-              href="https://midamapromo-royalties.ai.studio"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-amber-300 hover:text-amber-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-              title="Open Royalty Dashboard in new tab"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Royalty Dashboard</span>
-              <ExternalLink className="w-3 h-3 text-neutral-500" />
-            </a>
+
 
             <a href="mailto:midnightamapiano@yahoo.com?subject=Mid-Ama%20Promo%20Query" className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold rounded-xl transition-colors" title="Contact Mid-Ama Promo">
               <MessageSquare className="w-3.5 h-3.5 text-red-400" />
@@ -344,28 +341,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
             ))}
           </div>
         )}
-
-        {/* Royalty Dashboard Section */}
-        <section className="bg-gradient-to-r from-neutral-900/90 via-neutral-900/60 to-neutral-950 border border-neutral-800 rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
-          <div className="space-y-1">
-            <h2 className="text-base font-bold text-white font-['Space_Grotesk'] flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Royalty Dashboard</span>
-            </h2>
-            <p className="text-xs text-neutral-400 max-w-xl">
-              Access your earnings, detailed streaming statements, and payout history via the dedicated Mid-Ama Royalty Portal.
-            </p>
-          </div>
-          <a
-            href="https://midamapromo-royalties.ai.studio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 hover:text-white text-neutral-100 text-xs font-bold rounded-xl border border-neutral-700 transition-all shadow-md shrink-0 cursor-pointer"
-          >
-            <span>Open Royalty Dashboard</span>
-            <ExternalLink className="w-3.5 h-3.5 text-neutral-400" />
-          </a>
-        </section>
 
         {/* Real Summary Bar (Only shown if user has submitted releases) */}
         {releases.length > 0 && (
@@ -521,6 +496,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                     </div>
                   </div>
 
+                  <div className="mb-3 p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/60 flex items-center justify-between gap-3">
+                    <div><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Release Royalty</span><strong className="text-lg text-emerald-400">R{Number(rel.royaltyAmount || 0).toFixed(2)}</strong></div>
+                    <span className="text-[10px] text-neutral-500">Assigned by Mid-Ama Promo</span>
+                  </div>
+
                   {/* Feedback / Notes callouts */}
                   {rel.status === 'Denied' && rel.denialReason && (
                     <div className="mb-3 p-2.5 rounded-lg text-xs bg-red-950/40 text-red-300 border border-red-800/80 flex items-start gap-1.5">
@@ -603,7 +583,55 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
           </div>
         )}
 
+
+        {/* Integrated Royalty Dashboard */}
+        <section className="space-y-4">
+          <div className="bg-gradient-to-r from-neutral-900/95 via-neutral-900/70 to-neutral-950 border border-neutral-800 rounded-2xl p-6 shadow-xl">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div>
+                <h2 className="text-base font-bold text-white font-['Space_Grotesk'] flex items-center gap-2"><Wallet className="w-4 h-4 text-emerald-400" /> Royalties & Withdrawals</h2>
+                <p className="text-xs text-neutral-400 mt-1 max-w-xl">Your royalty earnings are assigned to your releases by the Mid-Ama Promo administrator. You can request payment of your available balance using your banking details.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+              <div className="p-4 rounded-xl bg-neutral-950/70 border border-neutral-800"><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Total Earnings</span><strong className="text-xl text-white">R{royaltySummary.totalEarnings.toFixed(2)}</strong></div>
+              <div className="p-4 rounded-xl bg-neutral-950/70 border border-neutral-800"><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Available</span><strong className="text-xl text-emerald-400">R{royaltySummary.availableAmount.toFixed(2)}</strong></div>
+              <div className="p-4 rounded-xl bg-neutral-950/70 border border-neutral-800"><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Pending Withdrawal</span><strong className="text-xl text-amber-400">R{royaltySummary.pendingAmount.toFixed(2)}</strong></div>
+              <div className="p-4 rounded-xl bg-neutral-950/70 border border-neutral-800"><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Already Paid</span><strong className="text-xl text-blue-400">R{royaltySummary.paidAmount.toFixed(2)}</strong></div>
+            </div>
+
+            <div className="mt-5 pt-5 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-[11px] text-neutral-500 text-center sm:text-left">Available funds can be withdrawn using the banking details you provide.</p>
+              <button type="button" onClick={() => setWithdrawalOpen(true)} disabled={royaltySummary.availableAmount <= 0} className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-md shrink-0"><Banknote className="w-4 h-4" /> Withdraw Available Funds</button>
+            </div>
+          </div>
+
+          {withdrawals.length > 0 && (
+            <div className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3"><h3 className="text-sm font-bold text-white">Withdrawal History</h3><span className="text-[10px] text-neutral-500">Latest requests</span></div>
+              <div className="space-y-2">
+                {withdrawals.slice(0, 5).map(w => (
+                  <div key={w.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-neutral-950/70 border border-neutral-800 rounded-xl">
+                    <div><span className="font-bold text-white text-xs">R{w.amount.toFixed(2)}</span><span className="text-[10px] text-neutral-500 ml-2">{new Date(w.createdAt).toLocaleString()}</span></div>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded border w-fit ${w.status === 'paid' ? 'text-emerald-400 bg-emerald-950/40 border-emerald-800' : w.status === 'pending' ? 'text-amber-400 bg-amber-950/40 border-amber-800' : 'text-red-400 bg-red-950/40 border-red-800'}`}>{w.status === 'paid' ? 'Paid' : w.status === 'pending' ? 'Pending' : 'Rejected'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       </main>
+
+      <RoyaltyWithdrawalModal
+        isOpen={withdrawalOpen}
+        summary={royaltySummary}
+        onClose={() => setWithdrawalOpen(false)}
+        onSubmitted={(summary, withdrawal) => {
+          setRoyaltySummary(summary);
+          setWithdrawals(prev => [withdrawal, ...prev]);
+        }}
+      />
     </div>
   );
 };

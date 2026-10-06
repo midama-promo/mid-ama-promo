@@ -1,4 +1,4 @@
-import { User, Release, Enquiry, NotificationLog, AdminStats, ReleaseStatus } from '../types';
+import { User, Release, Enquiry, NotificationLog, AdminStats, ReleaseStatus, WithdrawalRequest } from '../types';
 
 class ApiService {
   private token: string | null = null;
@@ -181,6 +181,24 @@ class ApiService {
       method: 'PATCH',
       body: JSON.stringify({ links }),
     });
+  }
+
+  async updateReleaseRoyalty(id: string, amount: number): Promise<{ message: string; release: Release }> {
+    return this.request<{ message: string; release: Release }>(`/api/releases/${id}/royalty`, {
+      method: 'PATCH',
+      body: JSON.stringify({ amount }),
+    });
+  }
+
+  async getRoyaltySummary(): Promise<{ totalEarnings: number; pendingAmount: number; paidAmount: number; availableAmount: number; withdrawals: WithdrawalRequest[] }> {
+    return this.request('/api/royalties/summary');
+  }
+
+  async requestRoyaltyWithdrawal(payload: {
+    amount: number; bankName: string; accountHolder: string; accountNumber: string; branchCode: string;
+    accountType: WithdrawalRequest['accountType']; notes?: string; liabilityAcknowledged: boolean;
+  }): Promise<{ message: string; withdrawal: WithdrawalRequest; summary: { totalEarnings: number; pendingAmount: number; paidAmount: number; availableAmount: number } }> {
+    return this.request('/api/royalties/withdrawals', { method: 'POST', body: JSON.stringify(payload) });
   }
 
   async completeRelease(id: string, note?: string): Promise<{ message: string; release: Release }> {
@@ -368,6 +386,14 @@ class ApiService {
 
   async getClientReleases(clientId: string): Promise<{ client: User; releases: Release[] }> {
     return this.request<{ client: User; releases: Release[] }>(`/api/admin/clients/${clientId}/releases`);
+  }
+
+  async getAdminRoyaltyWithdrawals(): Promise<{ withdrawals: WithdrawalRequest[] }> {
+    return this.request('/api/admin/royalties/withdrawals');
+  }
+
+  async updateRoyaltyWithdrawal(id: string, payload: { status: 'paid' | 'rejected'; adminNote?: string }): Promise<{ message: string; withdrawal: WithdrawalRequest }> {
+    return this.request(`/api/admin/royalties/withdrawals/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
   }
 
   async getAdminCatalogue(): Promise<{ entries: Array<any> }> {

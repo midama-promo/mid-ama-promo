@@ -89,6 +89,7 @@ export interface PreSaveLink {
 }
 
 export interface Release {
+  royaltyAmount?: number;
   id: string;
   userId: string;
   userEmail: string;
@@ -132,6 +133,27 @@ export interface Release {
     timestamp: string;
     updatedBy: string;
   }>;
+}
+
+export interface WithdrawalRequest {
+  id: string;
+  userId: string;
+  userEmail: string;
+  clientName: string;
+  amount: number;
+  currency: 'ZAR';
+  bankName: string;
+  accountHolder: string;
+  accountNumber: string;
+  branchCode: string;
+  accountType: 'Cheque' | 'Savings' | 'Transmission' | 'Other';
+  notes?: string;
+  liabilityAcknowledged: boolean;
+  status: 'pending' | 'paid' | 'rejected';
+  createdAt: string;
+  processedAt?: string;
+  processedBy?: string;
+  adminNote?: string;
 }
 
 export interface Enquiry {
@@ -202,6 +224,7 @@ export interface DatabaseSchema {
   enquiries: Enquiry[];
   notifications: NotificationLog[];
   catalogue: CatalogueEntry[];
+  withdrawals: WithdrawalRequest[];
 }
 
 // ----------------------------------------------------
@@ -316,6 +339,7 @@ const INITIAL_DB: DatabaseSchema = {
   enquiries: [],
   notifications: [],
   catalogue: [],
+  withdrawals: [],
 };
 
 // ----------------------------------------------------
@@ -427,6 +451,7 @@ class Database {
     const enquiries: Enquiry[] = Array.isArray(parsed.enquiries) ? parsed.enquiries : [];
     const notifications: NotificationLog[] = Array.isArray(parsed.notifications) ? parsed.notifications : [];
     const catalogue: CatalogueEntry[] = Array.isArray(parsed.catalogue) ? parsed.catalogue : [];
+    const withdrawals: WithdrawalRequest[] = Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [];
 
     // Ensure designated platform administrator accounts exist idempotently
     // 1. Remoabetswe Molefi (Founder / Distribution Manager)
@@ -459,6 +484,7 @@ class Database {
       if (!Array.isArray(rel.primaryArtists)) rel.primaryArtists = [];
       if (!Array.isArray(rel.featuredArtists)) rel.featuredArtists = [];
       if (typeof rel.allowPublicShare !== 'boolean') rel.allowPublicShare = false;
+      if (typeof rel.royaltyAmount !== 'number' || !Number.isFinite(rel.royaltyAmount) || rel.royaltyAmount < 0) rel.royaltyAmount = 0;
       if (!Array.isArray(rel.statusHistory)) {
         rel.statusHistory = [
           {
@@ -477,6 +503,7 @@ class Database {
       enquiries,
       notifications,
       catalogue,
+      withdrawals,
     };
   }
 
@@ -881,6 +908,47 @@ class Database {
       const initialLen = data.releases.length;
       data.releases = data.releases.filter(r => r.id !== id);
       return data.releases.length !== initialLen;
+    });
+  }
+
+  // ====================================================
+  // ROYALTY / WITHDRAWAL OPERATIONS
+  // ====================================================
+  getWithdrawals(): WithdrawalRequest[] {
+    return this.getAuthoritativeData().withdrawals || [];
+  }
+
+  getWithdrawalsByUserId(userId: string): WithdrawalRequest[] {
+    return this.getWithdrawals().filter(w => w.userId === userId);
+  }
+
+  createWithdrawal(withdrawal: WithdrawalRequest): WithdrawalRequest {
+    return this.mutate((data) => {
+      data.withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals : [];
+      const totalEarnings = data.releases
+        .filter(r => r.userId === withdrawal.userId)
+        .reduce((sum, r) => sum + Math.max(0, Number(r.royaltyAmount || 0)), 0);
+      const reserved = data.withdrawals
+        .filter(w => w.userId === withdrawal.userId && w.status === 'pending')
+        .reduce((sum, w) => sum + Number(w.amount || 0), 0);
+      const paid = data.withdrawals
+        .filter(w => w.userId === withdrawal.userId && w.status === 'paid')
+        .reduce((sum, w) => sum + Number(w.amount || 0), 0);
+      const available = Math.max(0, totalEarnings - reserved - paid);
+      if (withdrawal.amount > available + 0.000001) {
+        throw new Error(`The maximum available amount is R${available.toFixed(2)}.`);
+      }
+      data.withdrawals.unshift(withdrawal);
+      return withdrawal;
+    });
+  }
+
+  updateWithdrawal(id: string, updates: Partial<WithdrawalRequest>): WithdrawalRequest | undefined {
+    return this.mutate((data) => {
+      const idx = (data.withdrawals || []).findIndex(w => w.id === id);
+      if (idx === -1) return undefined;
+      data.withdrawals[idx] = { ...data.withdrawals[idx], ...updates };
+      return data.withdrawals[idx];
     });
   }
 

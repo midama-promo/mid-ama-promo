@@ -86,6 +86,8 @@ export interface PreSaveLink {
 }
 
 export interface Release {
+  /** Royalty earnings assigned by the administrator for this release. Stored in ZAR. */
+  royaltyAmount?: number;
   id: string;
   userId: string;
   userEmail: string;
@@ -124,6 +126,28 @@ export interface Release {
   submittedAt: string;
   updatedAt: string;
   statusHistory?: StatusHistoryItem[];
+}
+
+
+export interface WithdrawalRequest {
+  id: string;
+  userId: string;
+  userEmail: string;
+  clientName: string;
+  amount: number;
+  currency: 'ZAR';
+  bankName: string;
+  accountHolder: string;
+  accountNumber: string;
+  branchCode: string;
+  accountType: 'Cheque' | 'Savings' | 'Transmission' | 'Other';
+  notes?: string;
+  liabilityAcknowledged: boolean;
+  status: 'pending' | 'paid' | 'rejected';
+  createdAt: string;
+  processedAt?: string;
+  processedBy?: string;
+  adminNote?: string;
 }
 
 export interface Enquiry {
