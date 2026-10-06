@@ -189,11 +189,20 @@ function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunc
     return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' });
   }
 
-  if (user.status === 'disabled') {
-    return res.status(403).json({ error: 'Your account has been deactivated by the administrator. Please contact midnightamapiano@yahoo.com.' });
-  }
-
   req.user = user;
+  next();
+}
+
+function activeClientOnly(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (req.user?.role === 'client' && req.user.status === 'disabled') {
+    return res.status(403).json({
+      error: req.user.disabledReason
+        ? `Your Mid-Ama Promo account is currently banned / terminated. Reason: ${req.user.disabledReason}`
+        : 'Your Mid-Ama Promo account is currently banned / terminated. Please contact Mid-Ama Promo administration.',
+      code: 'ACCOUNT_DISABLED',
+      reason: req.user.disabledReason || null,
+    });
+  }
   next();
 }
 
@@ -351,7 +360,7 @@ apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
 
   const verifiedEmail = normalizeAuthEmail(verifiedSupabaseUser?.email || email);
   const user = db.findUserByEmail(verifiedEmail);
-  if (!user || user.status === 'disabled') {
+  if (!user) {
     clearSessionCookie(res);
     return res.status(403).json({ error: 'This email is not authorized to access Mid-Ama Promo.' });
   }
@@ -436,7 +445,7 @@ function detectImageDimensions(filePath: string, mime: string): { width: number;
   return null;
 }
 
-apiRouter.post('/upload/artwork', authMiddleware, uploadArtwork.single('artwork'), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/upload/artwork', authMiddleware, activeClientOnly, uploadArtwork.single('artwork'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No artwork image file uploaded.' });
   }
@@ -471,7 +480,7 @@ apiRouter.post('/upload/artwork', authMiddleware, uploadArtwork.single('artwork'
   });
 });
 
-apiRouter.post('/upload/audio', authMiddleware, uploadAudio.single('audio'), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/upload/audio', authMiddleware, activeClientOnly, uploadAudio.single('audio'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No audio file uploaded.' });
   }
@@ -497,7 +506,7 @@ apiRouter.post('/upload/audio', authMiddleware, uploadAudio.single('audio'), (re
 });
 
 // Supporting Document Upload (PDF, DOCX, TXT, CSV)
-apiRouter.post('/upload/document', authMiddleware, uploadDocument.single('document'), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/upload/document', authMiddleware, activeClientOnly, uploadDocument.single('document'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No document file uploaded.' });
   }
@@ -966,7 +975,7 @@ apiRouter.get('/releases/:id', authMiddleware, (req: AuthenticatedRequest, res: 
   res.json({ release });
 });
 
-apiRouter.post('/releases', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
   const {
     title,
@@ -1522,14 +1531,14 @@ function calculateRoyaltySummary(userId: string) {
   };
 }
 
-apiRouter.get('/royalties/summary', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/royalties/summary', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user!.id;
   const summary = calculateRoyaltySummary(userId);
   const withdrawals = db.getWithdrawalsByUserId(userId);
   res.json({ ...summary, withdrawals });
 });
 
-apiRouter.post('/royalties/withdrawals', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/royalties/withdrawals', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
   if (req.user!.role !== 'client') return res.status(403).json({ error: 'Only client accounts can request a royalty withdrawal.' });
 
   const { amount, bankName, accountHolder, accountNumber, branchCode, accountType, notes, liabilityAcknowledged } = req.body || {};
@@ -1741,7 +1750,7 @@ apiRouter.post('/admin/clients/:id/access-session', authMiddleware, adminOnly, (
 
 // Admin update client status (enable/disable)
 apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
-  const { status, name, realFirstName, realSurname, phone } = req.body;
+  const { status, name, realFirstName, realSurname, phone, disabledReason } = req.body;
   const client = db.findUserById(req.params.id);
 
   if (!client || client.role !== 'client') {
@@ -1751,6 +1760,13 @@ apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: Authentic
   const updates: Partial<User> = {};
   if (status && ['active', 'disabled', 'pending_activation'].includes(status)) {
     updates.status = status;
+    if (status === 'disabled') {
+      const reason = typeof disabledReason === 'string' ? disabledReason.trim() : '';
+      if (!reason) return res.status(400).json({ error: 'A reason is required when banning / terminating a client account.' });
+      updates.disabledReason = reason;
+    } else if (status === 'active') {
+      updates.disabledReason = undefined;
+    }
   }
   if (name) { updates.name = name.trim(); updates.artistName = name.trim(); }
   if (realFirstName !== undefined) updates.realFirstName = typeof realFirstName === 'string' ? realFirstName.trim() : '';
@@ -2045,7 +2061,7 @@ apiRouter.patch('/admin/catalogue/:id', authMiddleware, adminOnly, (req: Authent
 // ----------------------------------------------------
 // TAKEDOWN REQUESTS
 // ----------------------------------------------------
-apiRouter.post('/releases/:id/takedown-request', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/releases/:id/takedown-request', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
   const release = db.findReleaseById(req.params.id);
   if (!release) return res.status(404).json({ error: 'Release not found.' });
   if (req.user!.role !== 'admin' && release.userId !== req.user!.id) return res.status(403).json({ error: 'Access denied.' });

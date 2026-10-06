@@ -23,6 +23,7 @@ export interface User {
   role: 'admin' | 'client';
   passwordHash: string;
   status: 'active' | 'pending_activation' | 'disabled';
+  disabledReason?: string;
   inviteToken?: string;
   resetToken?: string;
   resetTokenExpiry?: string;

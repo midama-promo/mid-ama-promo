@@ -10,6 +10,7 @@ export interface User {
   artistName?: string;
   role: UserRole;
   status: UserStatus;
+  disabledReason?: string;
   phone?: string;
   country?: string;
   createdAt: string;

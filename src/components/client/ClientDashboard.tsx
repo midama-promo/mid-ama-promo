@@ -22,7 +22,8 @@ import {
   Eye,
   MessageSquare,
   Wallet,
-  Banknote
+  Banknote,
+  ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Release, ReleaseStatus, WithdrawalRequest } from '../../types';
@@ -48,6 +49,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   newlyCreatedRelease,
 }) => {
   const { user, logout, isImpersonating, exitClientAccount } = useAuth();
+  const isAccountRestricted = user?.status === 'disabled';
   const [releases, setReleases] = useState<Release[]>([]);
   const [catalogueEntries, setCatalogueEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,11 +67,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
     try {
       if (showSpinner) setLoading(true);
       setError(null);
-      const [releaseRes, catalogueRes, royaltyRes] = await Promise.all([api.getReleases(), api.getClientCatalogue(), api.getRoyaltySummary()]);
+      const [releaseRes, catalogueRes] = await Promise.all([api.getReleases(), api.getClientCatalogue()]);
       setReleases(releaseRes.releases);
       setCatalogueEntries(catalogueRes.entries);
-      setRoyaltySummary({ totalEarnings: royaltyRes.totalEarnings, pendingAmount: royaltyRes.pendingAmount, paidAmount: royaltyRes.paidAmount, availableAmount: royaltyRes.availableAmount });
-      setWithdrawals(royaltyRes.withdrawals || []);
+      if (!isAccountRestricted) {
+        const royaltyRes = await api.getRoyaltySummary();
+        setRoyaltySummary({ totalEarnings: royaltyRes.totalEarnings, pendingAmount: royaltyRes.pendingAmount, paidAmount: royaltyRes.paidAmount, availableAmount: royaltyRes.availableAmount });
+        setWithdrawals(royaltyRes.withdrawals || []);
+      } else {
+        setRoyaltySummary({ totalEarnings: 0, pendingAmount: 0, paidAmount: 0, availableAmount: 0 });
+        setWithdrawals([]);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load releases.');
     } finally {
@@ -79,7 +87,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
 
   useEffect(() => {
     fetchReleases();
-  }, []);
+  }, [isAccountRestricted]);
 
   // Listen to midama:release-submitted event for instantaneous dashboard update without refresh
   useEffect(() => {
@@ -220,14 +228,16 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
               <Bell className="w-5 h-5" />
             </button>
 
-            <button
-              onClick={onOpenUpload}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold rounded-xl transition-all shadow-md shadow-red-950 active:scale-95 cursor-pointer"
-            >
-              <UploadCloud className="w-4 h-4" />
-              <span className="hidden sm:inline">Submit New Release</span>
-              <span className="sm:hidden">Submit</span>
-            </button>
+            {!isAccountRestricted && (
+              <button
+                onClick={onOpenUpload}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold rounded-xl transition-all shadow-md shadow-red-950 active:scale-95 cursor-pointer"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span className="hidden sm:inline">Submit New Release</span>
+                <span className="sm:hidden">Submit</span>
+              </button>
+            )}
 
             <button
               onClick={logout}
@@ -241,6 +251,19 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
+        {isAccountRestricted && (
+          <div className="bg-red-950/30 border border-red-900/70 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-950 border border-red-900 flex items-center justify-center shrink-0"><ShieldAlert className="w-5 h-5 text-red-400" /></div>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-red-300">Account Banned / Terminated</h2>
+                <p className="text-xs text-neutral-300 mt-1">Your Mid-Ama Promo client account has been deactivated by the administrator. Release submissions, royalty access, withdrawals, uploads, and other client actions are currently unavailable.</p>
+                {user?.disabledReason && <div className="mt-3 p-3 bg-neutral-950/70 border border-red-900/50 rounded-xl text-xs text-red-200"><strong>Reason:</strong> {user.disabledReason}</div>}
+                <p className="text-[11px] text-neutral-500 mt-3">If you believe this was done in error, contact Mid-Ama Promo administration.</p>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Artist Profile Header / Welcome Banner */}
         <div className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative overflow-hidden">
@@ -248,7 +271,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
 
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className={`w-2 h-2 rounded-full ${isAccountRestricted ? 'bg-red-500' : 'bg-emerald-500'}`} />
               <span>Client Portal</span>
               <span className="text-neutral-600">·</span>
               <span className="text-neutral-300 font-bold">{user?.email}</span>
@@ -264,13 +287,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={onOpenUpload}
-              className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-950 flex items-center gap-2 transition-colors cursor-pointer active:scale-95"
-            >
-              <UploadCloud className="w-4 h-4" />
-              <span>Submit New Release</span>
-            </button>
+            {!isAccountRestricted && (
+              <button
+                onClick={onOpenUpload}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-950 flex items-center gap-2 transition-colors cursor-pointer active:scale-95"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Submit New Release</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -435,13 +460,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                 You have not submitted any music releases yet. When you are ready, click the button below to upload your master audio, square cover artwork, and release metadata.
               </p>
             </div>
-            <button
-              onClick={onOpenUpload}
-              className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors inline-flex items-center gap-2 shadow-md shadow-red-950"
-            >
-              <UploadCloud className="w-4 h-4" />
-              <span>Submit New Release</span>
-            </button>
+            {!isAccountRestricted && (
+              <button
+                onClick={onOpenUpload}
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors inline-flex items-center gap-2 shadow-md shadow-red-950"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Submit New Release</span>
+              </button>
+            )}
           </div>
         ) : filteredReleases.length === 0 ? (
           <div className="py-16 bg-neutral-900/20 border border-neutral-800 rounded-2xl text-center space-y-2 p-6">
@@ -496,10 +523,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                     </div>
                   </div>
 
-                  <div className="mb-3 p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/60 flex items-center justify-between gap-3">
-                    <div><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Release Royalty</span><strong className="text-lg text-emerald-400">R{Number(rel.royaltyAmount || 0).toFixed(2)}</strong></div>
-                    <span className="text-[10px] text-neutral-500">Assigned by Mid-Ama Promo</span>
-                  </div>
+                  {!isAccountRestricted && (
+                    <div className="mb-3 p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/60 flex items-center justify-between gap-3">
+                      <div><span className="text-[10px] uppercase tracking-wider text-neutral-500 block">Release Royalty</span><strong className="text-lg text-emerald-400">R{Number(rel.royaltyAmount || 0).toFixed(2)}</strong></div>
+                      <span className="text-[10px] text-neutral-500">Assigned by Mid-Ama Promo</span>
+                    </div>
+                  )}
 
                   {/* Feedback / Notes callouts */}
                   {rel.status === 'Denied' && rel.denialReason && (
@@ -585,7 +614,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
 
 
         {/* Integrated Royalty Dashboard */}
-        <section className="space-y-4">
+        {!isAccountRestricted && <section className="space-y-4">
           <div className="bg-gradient-to-r from-neutral-900/95 via-neutral-900/70 to-neutral-950 border border-neutral-800 rounded-2xl p-6 shadow-xl">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
               <div>
@@ -620,10 +649,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
               </div>
             </div>
           )}
-        </section>
+        </section>}
       </main>
 
-      <RoyaltyWithdrawalModal
+      {!isAccountRestricted && <RoyaltyWithdrawalModal
         isOpen={withdrawalOpen}
         summary={royaltySummary}
         onClose={() => setWithdrawalOpen(false)}
@@ -631,7 +660,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
           setRoyaltySummary(summary);
           setWithdrawals(prev => [withdrawal, ...prev]);
         }}
-      />
+      />}
     </div>
   );
 };
