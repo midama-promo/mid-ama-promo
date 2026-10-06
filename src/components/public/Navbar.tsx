@@ -132,10 +132,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>Sign In</span>
                 </button>
 
-                {onOpenRegister && (
-                  <button onClick={onOpenRegister} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-neutral-300 hover:text-white transition-colors">Sign Up</button>
-                )}
-
                 <button
                   onClick={onOpenRegister || onOpenGetStarted}
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all hover:shadow-red-900/20 active:scale-95"
@@ -232,11 +228,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <LogIn className="w-4 h-4" />
                   Sign In
                 </button>
-                {onOpenRegister && (
-                  <button onClick={() => { setMobileMenuOpen(false); onOpenRegister(); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white rounded-lg text-xs font-semibold">
-                    Sign Up
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);

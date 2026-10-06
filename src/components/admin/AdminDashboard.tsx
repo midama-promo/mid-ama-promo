@@ -115,6 +115,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleAddPreSaveLink = async () => {
     if (!preSaveRelease || !preSaveUrl.trim()) return;
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(preSaveUrl.trim());
+    } catch {
+      alert('Please enter a valid pre-save URL.');
+      return;
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      alert('Pre-save URL must start with http:// or https://.');
+      return;
+    }
+
     try {
       setPreSaveSaving(true);
       const existingLinks = preSaveRelease.preSaveLinks || [];
@@ -986,6 +999,117 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
       </main>
+
+      {/* MODAL: PRE-SAVE LINK MANAGER */}
+      {preSaveRelease && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl p-6 sm:p-7 overflow-hidden">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Link2 className="w-5 h-5 text-red-500" />
+                  Manage Pre-save Links
+                </h3>
+                <p className="text-[11px] text-neutral-500 mt-1">
+                  {preSaveRelease.title} · {preSaveRelease.refNumber}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { if (!preSaveSaving) setPreSaveRelease(null); }}
+                disabled={preSaveSaving}
+                className="text-neutral-400 hover:text-white disabled:opacity-40"
+                aria-label="Close pre-save manager"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              {(preSaveRelease.preSaveLinks || []).length === 0 ? (
+                <div className="rounded-xl border border-dashed border-neutral-800 bg-neutral-900/50 p-5 text-center text-xs text-neutral-500">
+                  No pre-save links have been added yet.
+                </div>
+              ) : (
+                (preSaveRelease.preSaveLinks || []).map((link) => (
+                  <div key={link.id} className="flex items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-white truncate">{link.label}</div>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-red-400 hover:text-red-300 truncate block mt-1"
+                      >
+                        {link.url}
+                      </a>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePreSaveLink(link.id)}
+                      disabled={preSaveSaving}
+                      className="shrink-0 p-2 text-neutral-500 hover:text-red-400 hover:bg-neutral-800 rounded-lg disabled:opacity-40"
+                      title="Remove pre-save link"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleAddPreSaveLink();
+              }}
+              className="space-y-3 border-t border-neutral-800 pt-5"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Link Label</label>
+                <input
+                  type="text"
+                  value={preSaveLabel}
+                  onChange={(e) => setPreSaveLabel(e.target.value)}
+                  placeholder="e.g. Spotify Pre-save"
+                  maxLength={80}
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Pre-save URL <span className="text-red-500">*</span></label>
+                <input
+                  type="url"
+                  required
+                  value={preSaveUrl}
+                  onChange={(e) => setPreSaveUrl(e.target.value)}
+                  placeholder="https://..."
+                  maxLength={2000}
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600"
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPreSaveRelease(null)}
+                  disabled={preSaveSaving}
+                  className="flex-1 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white rounded-xl text-xs font-semibold disabled:opacity-40"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={preSaveSaving || !preSaveUrl.trim()}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  {preSaveSaving ? 'Saving...' : 'Add Pre-save Link'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: MANUAL CLIENT REGISTRATION */}
       {isRegisterModalOpen && (
