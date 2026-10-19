@@ -58,6 +58,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               How It Works
             </button>
             <button
+              onClick={() => scrollToSection('releases')}
+              className="hover:text-white transition-colors"
+            >
+              Releases
+            </button>
+            <button
               onClick={() => scrollToSection('requirements')}
               className="hover:text-white transition-colors"
             >

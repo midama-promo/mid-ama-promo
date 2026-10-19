@@ -14,6 +14,7 @@ import { AmapianoFocus } from './components/public/AmapianoFocus';
 import { ContactSection } from './components/public/ContactSection';
 import { Policies } from './components/public/Policies';
 import { Footer } from './components/public/Footer';
+import { ReleasesShowcase } from './components/public/ReleasesShowcase';
 
 // Modals & Dashboards
 import { AuthModal, AuthTabMode } from './components/auth/AuthModal';
@@ -233,6 +234,9 @@ function MainContent() {
           }}
           onLookupRef={handleOpenShare}
         />
+
+        {/* Public client releases catalogue */}
+        <ReleasesShowcase />
 
         {/* How It Works Section */}
         <HowItWorks
