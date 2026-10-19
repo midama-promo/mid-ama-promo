@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Sun, Moon } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/public/Navbar';
 import { Hero } from './components/public/Hero';
@@ -25,6 +26,45 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { PublicSharePage } from './components/public/PublicSharePage';
 import { NotificationCenterModal } from './components/client/NotificationCenterModal';
 import { Release } from './types';
+
+function ThemeControl() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try { return (localStorage.getItem('midama-theme') as 'dark' | 'light') || 'dark'; } catch { return 'dark'; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try { localStorage.setItem('midama-theme', theme); } catch { /* private browsing */ }
+  }, [theme]);
+  return <button type="button" className="ma-theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+    {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}<span>{theme === 'dark' ? 'LIGHT MODE' : 'DARK MODE'}</span>
+  </button>;
+}
+
+function MotionSystem() {
+  useEffect(() => {
+    const reveal = () => {
+      const candidates = document.querySelectorAll<HTMLElement>('main section, body > #root section, .max-w-7xl > div, [class*="rounded-xl"], [class*="rounded-2xl"], [class*="shadow"]');
+      candidates.forEach((el, i) => {
+        if (el.closest('.ma-theme-toggle') || el.hasAttribute('data-motion-ready')) return;
+        el.setAttribute('data-motion-ready', 'true');
+        el.classList.add('ma-motion-item');
+        el.dataset.motionDirection = i % 3 === 0 ? 'left' : i % 3 === 1 ? 'up' : 'right';
+      });
+      const items = document.querySelectorAll<HTMLElement>('.ma-motion-item:not(.ma-motion-visible)');
+      if (!('IntersectionObserver' in window)) { items.forEach(el => el.classList.add('ma-motion-visible')); return; }
+      items.forEach(el => observer.observe(el));
+    };
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (entry.isIntersecting) { entry.target.classList.add('ma-motion-visible'); observer.unobserve(entry.target); }
+    }), { threshold: 0.08, rootMargin: '0px 0px -25px 0px' });
+    reveal();
+    const mutation = new MutationObserver(() => reveal());
+    mutation.observe(document.getElementById('root') || document.body, { childList: true, subtree: true });
+    return () => { observer.disconnect(); mutation.disconnect(); };
+  }, []);
+  return null;
+}
 
 function MainContent() {
   const { user, isLoading } = useAuth();
@@ -307,6 +347,8 @@ function MainContent() {
 export default function App() {
   return (
     <AuthProvider>
+      <MotionSystem />
+      <ThemeControl />
       <MainContent />
     </AuthProvider>
   );

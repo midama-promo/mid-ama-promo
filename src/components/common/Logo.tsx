@@ -1,5 +1,4 @@
 import React from 'react';
-import midAmaPromoLogo from '../../assets/images/mid-ama-promo-logo.png';
 
 interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -8,16 +7,15 @@ interface LogoProps {
   onClick?: () => void;
 }
 
+/** Transparent, glass-effect M.A™ wordmark. Kept as the shared logo component so every portal uses the same identity. */
 export const Logo: React.FC<LogoProps> = ({ size = 'md', showTagline = false, className = '', onClick }) => {
-  const sizes = { sm: 'w-28', md: 'w-44', lg: 'w-52', xl: 'w-64' };
+  const sizes = { sm: 'text-2xl', md: 'text-3xl', lg: 'text-4xl', xl: 'text-5xl' };
   return (
-    <div onClick={onClick} className={`inline-flex flex-col select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}>
-      <img src={midAmaPromoLogo} alt="Mid-Ama Promo" className={`${sizes[size]} h-auto max-h-14 object-contain`} loading="eager" draggable={false} />
-      {showTagline && (
-        <span className="text-[10px] uppercase tracking-[0.2em] font-medium text-neutral-400 mt-1">
-          Worldwide Music Distribution & Promotion
-        </span>
-      )}
+    <div onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); } : undefined}
+      className={`ma-wordmark inline-flex flex-col select-none ${onClick ? 'cursor-pointer' : ''} ${className}`} aria-label="Mid-Ama Promo">
+      <span className={`ma-glass-type ${sizes[size]}`}><span>M</span><i>.</i><span>A</span><sup>™</sup></span>
+      {showTagline && <span className="ma-wordmark-tagline">INDEPENDENT MUSIC. WORLDWIDE REACH.</span>}
     </div>
   );
 };

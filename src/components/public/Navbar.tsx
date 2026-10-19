@@ -51,6 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Desktop Nav Links */}
           <nav className="hidden lg:flex items-center gap-8 text-sm font-medium text-neutral-300">
+            <button onClick={() => scrollToSection('releases')} className="hover:text-white transition-colors">Releases</button>
             <button
               onClick={() => scrollToSection('how-it-works')}
               className="hover:text-white transition-colors"
@@ -165,6 +166,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       {mobileMenuOpen && (
         <div className="sm:hidden bg-neutral-950 border-b border-neutral-800 px-4 pt-3 pb-6 space-y-3">
           <nav className="flex flex-col space-y-3 text-sm font-medium text-neutral-300">
+            <button onClick={() => scrollToSection('releases')} className="text-left py-1 hover:text-white">Releases</button>
             <button
               onClick={() => scrollToSection('how-it-works')}
               className="text-left py-1 hover:text-white"
