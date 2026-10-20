@@ -2,12 +2,11 @@ import React from 'react';
 
 interface MidAmaLogoProps { className?: string; size?: 'sm' | 'md' | 'lg' | 'xl'; variant?: 'badge' | 'full' | 'icon'; showSubtitle?: boolean; }
 
-/** Compatibility wrapper: preserves the existing component API while replacing the legacy badge. */
+/** Compatibility wrapper: keeps existing props while using the new translucent glass logo. */
 export const MidAmaLogo: React.FC<MidAmaLogoProps> = ({ className = '', size = 'md', variant = 'badge', showSubtitle = false }) => {
-  const sizes = { sm: 'text-xl', md: 'text-3xl', lg: 'text-5xl', xl: 'text-7xl' };
+  const sizes = { sm: 'w-24', md: 'w-32', lg: 'w-40', xl: 'w-52' };
   return <div className={`ma-glass-mark ${variant === 'full' ? 'ma-glass-mark-full' : ''} ${className}`}>
-    <span className={`ma-glass-type ${sizes[size]}`}><span>M</span><i>.</i><span>A</span><sup>™</sup></span>
-    {variant === 'full' && <span className="ma-glass-caption">MID-AMA PROMO</span>}
+    <img src="/mid-ama-promo-logo.png" alt="M.A™ Promo" className={`ma-logo-image ${sizes[size]} ${variant === 'icon' ? 'ma-logo-icon' : ''}`} />
     {showSubtitle && <span className="ma-glass-caption">MIDNIGHT-AMAPIANO DISTRIBUTION</span>}
   </div>;
 };
