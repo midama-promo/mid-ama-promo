@@ -1439,6 +1439,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      <CatalogueEntryModal
+        isOpen={catalogueModalOpen}
+        clients={clients}
+        entry={editingCatalogueEntry}
+        onClose={() => { setCatalogueModalOpen(false); setEditingCatalogueEntry(null); }}
+        onSaved={(entry) => { handleCatalogueSaved(entry); setCatalogueModalOpen(false); void api.getAdminCatalogue().then(res => setCatalogueEntries(res.entries)).catch(() => {}); }}
+      />
+
       {editingClient && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
           <div className="w-full max-w-md bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl p-6">

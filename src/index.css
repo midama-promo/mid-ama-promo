@@ -168,3 +168,27 @@ button:not([class*="bg-red-"]), a[role="button"], button[class*="bg-white"], but
 button:not([class*="bg-red-"]):hover, a[role="button"]:hover { background-color:rgba(255,255,255,.32)!important; }
 [class*="bg-neutral-950"], [class*="bg-neutral-900"], [class*="bg-neutral-800"] { background-color:rgba(205,205,215,.42)!important; }
 [class*="text-white"], [class*="text-neutral-100"], [class*="text-neutral-200"] { color:#292932; }
+
+
+/* Final interaction/accessibility repairs for the translucent grey-glass theme. */
+:root { --ma-radius-control: 14px; }
+button, [role="button"], a.button, input[type="button"], input[type="submit"] { border-radius: var(--ma-radius-control); }
+button:not([class*="rounded-"]), [role="button"]:not([class*="rounded-"]) { border-radius: var(--ma-radius-control); }
+/* Keep the glass treatment softly rounded instead of letting broad utility selectors create square tiles. */
+[class*="rounded-xl"], [class*="rounded-2xl"], [class*="rounded-3xl"] { border-radius: 1rem; }
+.ma-logo-image { background: transparent !important; mix-blend-mode: normal; }
+/* Grey theme: readable text on frosted panels; preserve semantic alert/status colours. */
+html:not([data-theme="light"]) body { color: #25252d; }
+html:not([data-theme="light"]) [class*="text-white"], html:not([data-theme="light"]) [class*="text-neutral-100"], html:not([data-theme="light"]) [class*="text-neutral-200"] { color: #292932 !important; }
+html:not([data-theme="light"]) [class*="text-neutral-300"] { color: #41414b !important; }
+html:not([data-theme="light"]) [class*="text-neutral-400"], html:not([data-theme="light"]) [class*="text-neutral-500"] { color: #595963 !important; }
+html:not([data-theme="light"]) [class*="bg-red-950"] { color: #752b36 !important; }
+html[data-theme="light"] [class*="text-white"], html[data-theme="light"] [class*="text-neutral-100"], html[data-theme="light"] [class*="text-neutral-200"] { color: #222 !important; }
+html[data-theme="light"] [class*="text-neutral-300"], html[data-theme="light"] [class*="text-neutral-400"], html[data-theme="light"] [class*="text-neutral-500"] { color: #555 !important; }
+/* Stronger text and labels inside form controls in either theme. */
+input, select, textarea { color: #24242b !important; }
+input::placeholder, textarea::placeholder { color: #686873 !important; opacity: 1; }
+option { background: #e7e7eb; color: #222; }
+/* Modal close/back controls remain visible and usable above glass layers. */
+.fixed.inset-0 button { position: relative; z-index: 2; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
