@@ -308,8 +308,13 @@ function activateFromVerifiedTransaction(data: any, expectedUserId: string) {
   return activated;
 }
 
+// Paid-plan purchases remain deliberately disabled until Mid-Ama Promo confirms Paystack business approval.
+// Re-enable only after approval and an end-to-end test of live checkout, verification, and webhooks.
+const PAYSTACK_PLAN_PURCHASES_ENABLED = false;
+
 // Paystack checkout initialization. Amounts and plan entitlements are always determined server-side.
 apiRouter.post('/payments/paystack/initialize', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  if (!PAYSTACK_PLAN_PURCHASES_ENABLED) return res.status(503).json({ error: 'Paid plans are coming soon while Paystack completes business verification.' });
   const user = req.user!;
   if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can purchase a plan.' });
   const planId = String(req.body?.planId || '') as PaidPlanId;
@@ -349,6 +354,7 @@ apiRouter.get('/payments/plan', authMiddleware, (req: AuthenticatedRequest, res:
 });
 
 apiRouter.post('/payments/paystack/verify', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  if (!PAYSTACK_PLAN_PURCHASES_ENABLED) return res.status(503).json({ error: 'Paid plans are coming soon while Paystack completes business verification.' });
   const reference = typeof req.body?.reference === 'string' ? req.body.reference.trim() : '';
   if (!reference) return res.status(400).json({ error: 'Payment reference is required.' });
   try {
@@ -371,7 +377,7 @@ apiRouter.post('/payments/paystack/webhook', (req: Request, res: Response) => {
   const expectedBuffer = Buffer.from(expected, 'hex');
   if (received.length !== expectedBuffer.length || !crypto.timingSafeEqual(received, expectedBuffer)) return res.status(401).send('Invalid signature.');
   const event = req.body;
-  if (event?.event === 'charge.success') {
+  if (PAYSTACK_PLAN_PURCHASES_ENABLED && event?.event === 'charge.success') {
     try {
       const metadata = event?.data?.metadata || {};
       const userId = String(metadata.user_id || metadata.userId || '');

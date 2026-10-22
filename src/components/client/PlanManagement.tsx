@@ -69,7 +69,7 @@ export const PlanManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-red-400"><CreditCard className="w-4 h-4" /> Plans & billing</div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-2">Choose the plan that fits your catalogue</h2>
-          <p className="text-sm text-neutral-400 mt-1">Payments are processed securely by Paystack. Paid plans last 30 days per successful payment and do not auto-renew.</p>
+          <p className="text-sm text-neutral-400 mt-1">Starter and Pro checkout are temporarily unavailable while Paystack reviews the business account. Paid plans will be enabled after approval.</p>
         </div>
         {plan && <div className="shrink-0 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 min-w-36">
           <p className="text-[10px] uppercase tracking-widest text-neutral-500">Current plan</p>
@@ -101,7 +101,7 @@ export const PlanManagement: React.FC = () => {
             <div><span className="text-3xl font-black text-white">R{card.price}</span><span className="text-sm text-neutral-500"> / month</span></div>
             <div className="space-y-2 text-sm text-neutral-200"><p className="font-semibold">{card.releases}</p><p>{card.artists}</p></div>
             <ul className="space-y-2 flex-1">{card.features.map((feature) => <li key={feature} className="flex gap-2 text-xs leading-relaxed text-neutral-300"><Check className="w-4 h-4 text-emerald-400 shrink-0" />{feature}</li>)}</ul>
-            {isCurrent ? <button disabled className="w-full rounded-xl border border-neutral-700 bg-neutral-800 px-4 py-3 text-sm font-bold text-neutral-300 cursor-default">Current plan</button> : card.id === 'free' ? <p className="text-xs text-neutral-500">Free access is available to all client accounts.</p> : <button onClick={() => void startCheckout(card.id)} disabled={checkoutPlan !== null || loading} className="w-full rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-60 px-4 py-3 text-sm font-bold text-white transition-colors">{checkoutPlan === card.id ? 'Connecting to Paystack…' : `Choose ${card.name}`}</button>}
+            {isCurrent ? <button disabled className="w-full rounded-xl border border-neutral-700 bg-neutral-800 px-4 py-3 text-sm font-bold text-neutral-300 cursor-default">Current plan</button> : card.id === 'free' ? <p className="text-xs text-neutral-500">Free access is available to all client accounts.</p> : <button type="button" disabled aria-disabled="true" title="Paid plans will be available after Paystack approval" className="w-full rounded-xl border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm font-bold text-neutral-400 cursor-not-allowed">Coming soon</button>}
           </article>;
         })}
       </div>

@@ -26,11 +26,12 @@ export const PricingPlans: React.FC<PricingPlansProps> = ({ onChoosePlan }) => (
             <p className="text-xs text-neutral-400 mt-1">{plan.subtitle}</p>
             <div className="mt-5"><span className="text-4xl font-black text-white">{plan.price}</span><span className="text-sm text-neutral-500"> / month</span></div>
             <ul className="mt-6 mb-7 space-y-3 flex-1">{plan.features.map((feature) => <li key={feature} className="flex items-start gap-2 text-sm text-neutral-300"><Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />{feature}</li>)}</ul>
-            <button onClick={onChoosePlan} className={`w-full rounded-xl px-4 py-3 text-sm font-bold transition-colors ${plan.popular ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white'}`}>{plan.name === 'Free' ? 'Create free account' : `Sign up to choose ${plan.name}`}</button>
+            {plan.name === 'Free' ? <button onClick={onChoosePlan} className="w-full rounded-xl px-4 py-3 text-sm font-bold transition-colors bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white">Create free account</button> : <button type="button" disabled aria-disabled="true" className="w-full rounded-xl px-4 py-3 text-sm font-bold border border-neutral-700 bg-neutral-800/60 text-neutral-400 cursor-not-allowed">Coming soon</button>}
           </article>;
         })}
       </div>
-      <p className="text-center text-xs text-neutral-500 mt-6">Paid plans are activated after Paystack confirms payment and provide 30 days of access per payment. Manual renewal is required. Distribution acceptance and release dates remain subject to review and platform requirements.</p>
+      <p className="text-center text-sm font-semibold text-amber-300 mt-6">Starter and Pro subscriptions are coming soon while Paystack completes business verification. Paid-plan checkout is temporarily unavailable. Free accounts remain available.</p>
+      <p className="text-center text-xs text-neutral-500 mt-2">When paid plans launch, each successful payment will provide 30 days of access and manual renewal will be required. Distribution acceptance and release dates remain subject to review and platform requirements.</p>
     </div>
   </section>
 );
