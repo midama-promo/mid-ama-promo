@@ -13,7 +13,7 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
       title: 'Email Registration',
       subtitle: 'Verified Artist Onboarding',
       description:
-        'Clients receive a direct invitation or register their artist/record label profile. Email OTP verification provides secure, passwordless access to your releases and catalogue.',
+        'Independent artists receive a direct invitation or register an artist profile. Email OTP verification provides secure, passwordless access to releases and catalogue tools.',
       highlight: 'Private Client Account',
     },
     {
@@ -49,7 +49,7 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
             How Mid-Ama Promo™ Works
           </h2>
           <p className="text-neutral-400 text-sm sm:text-base leading-relaxed">
-            A frictionless, transparent distribution pipeline built specifically for independent creators, producers, and Afro music record labels worldwide.
+            A frictionless, transparent distribution pipeline built specifically for independent artists and producers worldwide.
           </p>
         </div>
 

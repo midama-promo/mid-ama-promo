@@ -106,7 +106,7 @@ function migrateLocalAssetsToHostedStorage() {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = Buffer.from(buf); } }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Never let browsers/proxies cache account and catalogue responses. A stale GET

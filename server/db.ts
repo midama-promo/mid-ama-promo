@@ -31,6 +31,10 @@ export interface User {
   phone?: string;
   country?: string;
   lastLoginAt?: string;
+  planId?: 'free' | 'starter' | 'pro';
+  planExpiresAt?: string | null;
+  lastPaymentReference?: string;
+  planActivatedAt?: string | null;
 }
 
 export interface ArtistCredit {

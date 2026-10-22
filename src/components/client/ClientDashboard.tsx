@@ -30,6 +30,7 @@ import { Release, ReleaseStatus, WithdrawalRequest } from '../../types';
 import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { RoyaltyWithdrawalModal } from './RoyaltyWithdrawalModal';
+import { PlanManagement } from './PlanManagement';
 
 interface ClientDashboardProps {
   onOpenUpload: () => void;
@@ -67,6 +68,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   );
   const [spotifyClaimSaving, setSpotifyClaimSaving] = useState(false);
   const [spotifyClaimMessage, setSpotifyClaimMessage] = useState<string | null>(null);
+  const activePlan = user?.planId && user.planId !== 'free' && user.planExpiresAt && new Date(user.planExpiresAt).getTime() > Date.now() ? user.planId : 'free';
+  const isPaidDashboard = activePlan !== 'free';
 
   const fetchReleases = async (showSpinner = true) => {
     try {
@@ -199,7 +202,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 pb-20">
+    <div className={`min-h-screen text-neutral-100 pb-20 transition-colors duration-500 ${activePlan === 'pro' ? 'bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.16),_transparent_45%),#08080d]' : activePlan === 'starter' ? 'bg-[radial-gradient(ellipse_at_top,_rgba(244,63,94,0.13),_transparent_45%),#08080d]' : 'bg-neutral-950'}`} data-plan-theme={activePlan}>
       
       {/* Admin Impersonation Notice Bar */}
       {isImpersonating && (
@@ -218,7 +221,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
       )}
 
       {/* Top Client Portal Bar */}
-      <header className="sticky top-0 z-30 bg-neutral-950/95 backdrop-blur-md border-b border-neutral-800/80 px-4 sm:px-6 lg:px-8">
+      <header className={`sticky top-0 z-30 backdrop-blur-md px-4 sm:px-6 lg:px-8 ${activePlan === 'pro' ? 'bg-[#0c0915]/90 border-b border-violet-500/25' : activePlan === 'starter' ? 'bg-[#13090d]/90 border-b border-rose-500/25' : 'bg-neutral-950/95 border-b border-neutral-800/80'}`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between h-20">
           <div className="flex items-center gap-3">
             <Logo size="md" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
@@ -274,6 +277,18 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
         </div>
       </header>
 
+      {isPaidDashboard && !isAccountRestricted && (
+        <div className={`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-5`}>
+          <div className={`relative overflow-hidden rounded-2xl border p-4 sm:p-5 ${activePlan === 'pro' ? 'border-violet-400/30 bg-gradient-to-r from-violet-950/70 via-neutral-950/90 to-indigo-950/60 shadow-xl shadow-violet-950/20' : 'border-rose-400/25 bg-gradient-to-r from-rose-950/60 via-neutral-950/90 to-fuchsia-950/40 shadow-xl shadow-rose-950/15'}`}>
+            <div className={`absolute -right-8 -top-10 h-36 w-36 rounded-full blur-3xl ${activePlan === 'pro' ? 'bg-violet-500/20' : 'bg-rose-500/20'}`} />
+            <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div><p className={`text-[10px] font-black uppercase tracking-[0.24em] ${activePlan === 'pro' ? 'text-violet-300' : 'text-rose-300'}`}>{activePlan === 'pro' ? 'PRO EXPERIENCE' : 'STARTER EXPERIENCE'}</p><h2 className="mt-1 text-lg font-extrabold text-white">Your upgraded artist workspace is active.</h2><p className="mt-1 text-xs text-neutral-300">{activePlan === 'pro' ? 'Premium violet studio theme, unlimited release submissions and artist profiles.' : 'Studio rose theme, priority processing and expanded submission capacity.'}</p></div>
+              <span className={`inline-flex w-fit items-center rounded-full border px-3 py-2 text-xs font-bold ${activePlan === 'pro' ? 'border-violet-300/30 bg-violet-400/10 text-violet-100' : 'border-rose-300/30 bg-rose-400/10 text-rose-100'}`}>{activePlan.toUpperCase()} MEMBER</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         {isAccountRestricted && (
           <div className="bg-red-950/30 border border-red-900/70 rounded-2xl p-5 shadow-xl">
@@ -290,7 +305,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
         )}
         
         {/* Artist Profile Header / Welcome Banner */}
-        <div className="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative overflow-hidden">
+        <div className={`border rounded-2xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative overflow-hidden ${activePlan === 'pro' ? 'bg-gradient-to-br from-violet-950/40 via-neutral-900/70 to-indigo-950/30 border-violet-500/25' : activePlan === 'starter' ? 'bg-gradient-to-br from-rose-950/30 via-neutral-900/70 to-fuchsia-950/20 border-rose-500/25' : 'bg-neutral-900/60 border-neutral-800'}`}>
           <div className="absolute top-0 right-0 w-80 h-80 bg-red-600/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="space-y-2">
@@ -322,6 +337,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
             )}
           </div>
         </div>
+
+        {!isAccountRestricted && <PlanManagement />}
 
         {/* Spotify for Artists claim checklist */}
         {!isAccountRestricted && (

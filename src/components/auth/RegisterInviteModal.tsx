@@ -129,7 +129,7 @@ export const RegisterInviteModal: React.FC<RegisterInviteModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-              Artist / Label Name (Optional Confirmation)
+              Artist Name (Optional Confirmation)
             </label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
@@ -137,7 +137,7 @@ export const RegisterInviteModal: React.FC<RegisterInviteModalProps> = ({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Soshanguve Sound Labs"
+                placeholder="e.g. Midnight-Amapiano"
                 className="w-full bg-neutral-900 border border-neutral-800 rounded-xl pl-9 pr-3.5 py-2.5 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600 transition-colors"
               />
             </div>

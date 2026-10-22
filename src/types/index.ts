@@ -22,6 +22,9 @@ export interface User {
   /** Client-confirmed Spotify for Artists profile claim status. */
   spotifyProfileClaimed?: boolean;
   spotifyProfileClaimedAt?: string | null;
+  planId?: 'free' | 'starter' | 'pro';
+  planExpiresAt?: string | null;
+  planActivatedAt?: string | null;
 }
 
 export type ReleaseStatus =

@@ -64,6 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               Releases
             </button>
+            <button onClick={() => scrollToSection('pricing')} className="hover:text-white transition-colors">Pricing</button>
             <button
               onClick={() => scrollToSection('requirements')}
               className="hover:text-white transition-colors"
@@ -173,6 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               How It Works
             </button>
+            <button onClick={() => scrollToSection('pricing')} className="text-left py-1 hover:text-white">Pricing</button>
             <button
               onClick={() => scrollToSection('requirements')}
               className="text-left py-1 hover:text-white"

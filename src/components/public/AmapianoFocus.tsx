@@ -62,7 +62,7 @@ export const AmapianoFocus: React.FC = () => {
                 Global Release Reach
               </h3>
               <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
-                Seamless digital release delivery and promotional management tailored for independent artists, producers, and Afro music record labels.
+                Seamless digital release delivery and promotional management tailored for independent artists and producers.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-neutral-800/80 text-xs font-mono text-neutral-500 flex items-center gap-2">
@@ -77,15 +77,15 @@ export const AmapianoFocus: React.FC = () => {
                 <Radio className="w-5 h-5" />
               </div>
               <h3 className="text-lg font-bold text-white mb-2 font-['Space_Grotesk']">
-                Label & Artist Master Control
+                Artist Master Ownership
               </h3>
               <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
-                You retain 100% ownership of your masters and publishing rights. Mid-Ama Promo acts as your technical delivery partner and promotion catalyst without locking you into predatory long-term contracts.
+                Master ownership follows your plan: Free is 95% artist-owned and 5% owned by Mid-Ama Promo; Starter and Pro are 100% artist-owned. Publishing rights are separate from master ownership.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-neutral-800/80 text-xs font-mono text-neutral-500 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>100% Masters Retention</span>
+              <span>Plan-Based Master Ownership</span>
             </div>
           </div>
 

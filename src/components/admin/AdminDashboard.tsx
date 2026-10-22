@@ -57,6 +57,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const { user, logout, accessClientAccount } = useAuth();
   const [accessingClientId, setAccessingClientId] = useState<string | null>(null);
+  const [planDrafts, setPlanDrafts] = useState<Record<string, 'free' | 'starter' | 'pro'>>({});
+  const [savingPlanClientId, setSavingPlanClientId] = useState<string | null>(null);
   
   const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'royalties' | 'settings'>('releases');
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -322,6 +324,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return () => window.removeEventListener('midama:release-status-updated', handleStatusUpdated);
   }, []);
 
+  const handleChangeClientPlan = async (client: User) => {
+    const planId = planDrafts[client.id] || client.planId || 'free';
+    try {
+      setSavingPlanClientId(client.id);
+      const result = await api.updateClient(client.id, { planId });
+      setClients(prev => prev.map(c => c.id === client.id ? result.client : c));
+      setPlanDrafts(prev => { const next = { ...prev }; delete next[client.id]; return next; });
+      alert(`${client.name} is now on the ${planId.toUpperCase()} plan. ${planId === 'free' ? 'Paid access has been removed.' : 'Admin-assigned access is valid for 30 days.'}`);
+    } catch (err: any) {
+      alert(err.message || 'Could not update client plan.');
+    } finally {
+      setSavingPlanClientId(null);
+    }
+  };
+
   const handleToggleClientStatus = async (client: User) => {
     if (client.status === 'disabled') {
       try {
@@ -409,7 +426,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!editingClient) return;
     if (!editFirstName.trim() || !editSurname.trim() || !editArtistName.trim()) {
-      alert('First name, surname, and artist / label name are required.');
+      alert('First name, surname, and artist name is required.');
       return;
     }
     try {
@@ -921,7 +938,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-white font-['Space_Grotesk']">
-                  Registered Clients & Record Labels
+                  Registered Artist Accounts
                 </h3>
                 <p className="text-xs text-neutral-400">
                   Register new artists manually, manage login credentials, and view submitted releases.
@@ -940,6 +957,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {([{ id: 'free', title: 'Free accounts', tone: 'text-neutral-200' }, { id: 'starter', title: 'Starter accounts', tone: 'text-rose-300' }, { id: 'pro', title: 'Pro accounts', tone: 'text-violet-300' }] as const).map(item => {
+                const count = clients.filter(c => {
+                  const plan = c.planId || 'free';
+                  const expired = plan !== 'free' && (!c.planExpiresAt || new Date(c.planExpiresAt).getTime() <= Date.now());
+                  return (expired ? 'free' : plan) === item.id;
+                }).length;
+                return <div key={item.id} className="rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3"><p className="text-[10px] uppercase tracking-widest text-neutral-500">{item.title}</p><p className={`mt-1 text-2xl font-black ${item.tone}`}>{count}</p></div>;
+              })}
+            </div>
+
             {clients.length === 0 ? (
               <div className="py-20 bg-neutral-900/30 border border-dashed border-neutral-800 rounded-2xl text-center space-y-3 p-8">
                 <Users className="w-12 h-12 text-neutral-700 mx-auto" />
@@ -947,7 +975,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   No Clients Registered Yet
                 </h3>
                 <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                  Click "Register New Client" above to manually register an artist or label and provide their login credentials.
+                  Click "Register New Client" above to register an independent artist and provide their login details.
                 </p>
               </div>
             ) : (
@@ -957,9 +985,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <thead className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 font-mono uppercase text-[10px]">
                       <tr>
                         <th className="py-3 px-4">Client Name & Surname</th>
-                        <th className="py-3 px-4">Artist / Label</th>
+                        <th className="py-3 px-4">Artist Name</th>
                         <th className="py-3 px-4">Email Address</th>
                         <th className="py-3 px-4">Account Status</th>
+                        <th className="py-3 px-4">Plan</th>
                         <th className="py-3 px-4">Submitted Releases</th>
                         <th className="py-3 px-4">Registration Date</th>
                         <th className="py-3 px-4 text-right">Account Control</th>
@@ -1002,6 +1031,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 Reason: {c.disabledReason}
                               </span>
                             )}
+                          </td>
+
+                          <td className="py-3.5 px-4 min-w-[210px]">
+                            <div className="flex flex-col gap-2">
+                              <span className={`inline-flex w-fit items-center rounded-full border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${((c.planId || 'free') === 'pro' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() > Date.now()) ? 'border-violet-500/50 bg-violet-500/10 text-violet-200' : ((c.planId || 'free') === 'starter' && (!c.planExpiresAt || new Date(c.planExpiresAt).getTime() > Date.now())) ? 'border-rose-500/50 bg-rose-500/10 text-rose-200' : 'border-neutral-700 bg-neutral-800 text-neutral-300'}`}>
+                                {(c.planId || 'free') === 'free' || (c.planId !== 'free' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() <= Date.now()) ? 'Free' : (c.planId || 'free').toUpperCase()}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <select aria-label={`Set plan for ${c.name}`} value={planDrafts[c.id] || c.planId || 'free'} onChange={e => setPlanDrafts(prev => ({ ...prev, [c.id]: e.target.value as 'free' | 'starter' | 'pro' }))} className="min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[11px] text-white">
+                                  <option value="free">Free</option><option value="starter">Starter</option><option value="pro">Pro</option>
+                                </select>
+                                <button type="button" onClick={() => void handleChangeClientPlan(c)} disabled={savingPlanClientId === c.id} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-violet-500 disabled:opacity-50">{savingPlanClientId === c.id ? 'Saving…' : 'Set'}</button>
+                              </div>
+                              {c.planId && c.planId !== 'free' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() > Date.now() && <span className="text-[10px] text-neutral-500">Until {new Date(c.planExpiresAt).toLocaleDateString()}</span>}
+                            </div>
                           </td>
 
                           <td className="py-3.5 px-4">
@@ -1293,7 +1337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 
                 <div className="p-3.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-left space-y-2.5">
                   <div className="flex justify-between">
-                    <span className="text-neutral-400">Artist / Label:</span>
+                    <span className="text-neutral-400">Artist:</span>
                     <span className="font-bold text-white">{regSuccessResult.client.name}</span>
                   </div>
                   <div className="flex justify-between">
@@ -1349,14 +1393,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                    Artist / Label Name <span className="text-red-500">*</span>
+                    Artist Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
-                    placeholder="e.g. Master KG / Open Mic"
+                    placeholder="e.g. Midnight-Amapiano"
                     className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600"
                   />
                 </div>
@@ -1469,7 +1513,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Artist / Label Name</label>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">Artist Name</label>
                 <input required value={editArtistName} onChange={e => setEditArtistName(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600" />
               </div>
               <div className="flex gap-2 pt-1">

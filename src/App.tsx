@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/public/Navbar';
 import { Hero } from './components/public/Hero';
 import { HowItWorks } from './components/public/HowItWorks';
+import { PricingPlans } from './components/public/PricingPlans';
 import { Requirements } from './components/public/Requirements';
 import { QualityControl } from './components/public/QualityControl';
 import { AmapianoFocus } from './components/public/AmapianoFocus';
@@ -292,6 +293,9 @@ function MainContent() {
             }
           }}
         />
+
+        {/* Public plan comparison */}
+        <PricingPlans onChoosePlan={() => openAuth('register')} />
 
         {/* Technical Requirements Section */}
         <Requirements />

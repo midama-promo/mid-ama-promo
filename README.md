@@ -41,3 +41,7 @@ npm run dev
 ```
 
 Production should always have both Supabase environment variables configured.
+
+## Paystack billing and client plans
+
+See `PAYSTACK_INTEGRATION.md` for the Starter/Pro pricing, the server-side Paystack checkout/webhook setup, and production deployment steps. The application enforces monthly release and unique-artist limits on the server. Add `PAYSTACK_SECRET_KEY` only to the server hosting environment, configure `APP_URL`, and register `https://distro.midamapromo.co.za/api/payments/paystack/webhook` in the Paystack Dashboard before testing checkout.

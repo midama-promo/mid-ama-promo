@@ -1,5 +1,14 @@
 import { User, Release, Enquiry, NotificationLog, AdminStats, ReleaseStatus, WithdrawalRequest } from '../types';
 
+export interface PlanUsageResponse {
+  planId: 'free' | 'starter' | 'pro';
+  planName: string;
+  planExpiresAt: string | null;
+  usage: { releasesThisMonth: number; artists: number };
+  limits: { releasesPerMonth: number | null; artists: number | null };
+  prices: { starter: number; pro: number };
+}
+
 class ApiService {
   private token: string | null = null;
 
@@ -76,6 +85,18 @@ class ApiService {
 
   async getMe(): Promise<{ user: User }> {
     return this.request<{ user: User }>('/api/auth/me');
+  }
+
+  async getPlanUsage(): Promise<PlanUsageResponse> {
+    return this.request<PlanUsageResponse>('/api/payments/plan');
+  }
+
+  async initializePlanPayment(planId: 'starter' | 'pro'): Promise<{ authorizationUrl: string; reference: string; planId: string; amount: number }> {
+    return this.request('/api/payments/paystack/initialize', { method: 'POST', body: JSON.stringify({ planId }) });
+  }
+
+  async verifyPlanPayment(reference: string): Promise<{ message: string; user: User; plan: PlanUsageResponse }> {
+    return this.request('/api/payments/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) });
   }
 
   async setSpotifyProfileClaimed(claimed: boolean): Promise<{ message: string; user: User }> {

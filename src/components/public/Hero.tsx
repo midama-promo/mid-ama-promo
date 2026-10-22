@@ -55,7 +55,7 @@ export const Hero: React.FC<HeroProps> = ({
           </h1>
 
           <p className="text-lg sm:text-xl text-neutral-300 max-w-2xl mx-auto font-normal leading-relaxed">
-            Registered artists and record labels can securely submit music master files, square cover artwork, and complete release metadata directly to the Mid-Ama Promo management desk.
+            Independent artists can securely submit music master files, square cover artwork, and complete release metadata directly to the Mid-Ama Promo management desk.
           </p>
 
           {/* Primary Action Buttons */}

@@ -214,6 +214,176 @@ function adminOnly(req: AuthenticatedRequest, res: Response, next: NextFunction)
   next();
 }
 
+
+const PLAN_CONFIG = {
+  free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 10, artistLimit: 10 },
+  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: 50, artistLimit: 20 },
+  pro: { id: 'pro' as const, name: 'Pro', amountZar: 449, amountKobo: 44900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
+};
+type PaidPlanId = 'starter' | 'pro';
+
+function effectivePlanId(user: User): 'free' | 'starter' | 'pro' {
+  const plan = user.planId || 'free';
+  if (plan === 'free') return 'free';
+  if (!user.planExpiresAt || new Date(user.planExpiresAt).getTime() <= Date.now()) return 'free';
+  return plan;
+}
+
+function releaseArtistNames(release: Release): string[] {
+  const names: string[] = [
+    ...(release.primaryArtists || []), ...(release.featuredArtists || []),
+    ...(release.primaryArtistProfiles || []).map((p: any) => p.name),
+    ...(release.featuredArtistProfiles || []).map((p: any) => p.name),
+    ...(release.artistProfiles || []).map((p: any) => p.name),
+  ];
+  for (const track of release.tracks || []) {
+    if (track.primaryArtist) names.push(track.primaryArtist);
+    names.push(...(track.featuredArtists || []));
+    names.push(...(track.artistProfiles || []).map((p: any) => p.name));
+  }
+  return names.map(n => String(n || '').trim()).filter(Boolean);
+}
+
+function planUsage(user: User) {
+  const planId = effectivePlanId(user);
+  const plan = PLAN_CONFIG[planId];
+  const allUserReleases = db.getReleases().filter(r => r.userId === user.id);
+  const now = Date.now();
+  const windowStart = now - 30 * 24 * 60 * 60 * 1000;
+  const monthlyReleases = allUserReleases.filter(r => new Date(r.submittedAt).getTime() >= windowStart);
+  const artistNames = new Set([...(user.artistName || user.name ? [user.artistName || user.name] : []), ...allUserReleases.flatMap(releaseArtistNames)].map(n => n.toLocaleLowerCase()));
+  return {
+    planId,
+    planName: plan.name,
+    planExpiresAt: planId === 'free' ? null : user.planExpiresAt || null,
+    usage: { releasesThisMonth: monthlyReleases.length, artists: artistNames.size },
+    limits: { releasesPerMonth: plan.monthlyReleaseLimit, artists: plan.artistLimit },
+    prices: { starter: PLAN_CONFIG.starter.amountZar, pro: PLAN_CONFIG.pro.amountZar },
+  };
+}
+
+function applyPaidPlan(userId: string, planId: PaidPlanId, reference: string): User | undefined {
+  const user = db.findUserById(userId);
+  if (!user || user.role !== 'client') return undefined;
+  if (user.lastPaymentReference === reference) return user;
+  const now = Date.now();
+  const currentExpiry = user.planExpiresAt ? new Date(user.planExpiresAt).getTime() : 0;
+  const base = Number.isFinite(currentExpiry) && currentExpiry > now ? currentExpiry : now;
+  const expiresAt = new Date(base + 30 * 24 * 60 * 60 * 1000).toISOString();
+  return db.updateUser(user.id, {
+    planId,
+    planExpiresAt: expiresAt,
+    planActivatedAt: new Date().toISOString(),
+    lastPaymentReference: reference,
+  });
+}
+
+async function verifyPaystackTransaction(reference: string) {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) throw new Error('Paystack is not configured on the server yet. Add PAYSTACK_SECRET_KEY to your hosting environment.');
+  const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secret}`, Accept: 'application/json' },
+  });
+  const result: any = await response.json().catch(() => ({}));
+  if (!response.ok || !result?.status) throw new Error(result?.message || 'Paystack could not verify this payment.');
+  return result.data;
+}
+
+function activateFromVerifiedTransaction(data: any, expectedUserId: string) {
+  const metadata = data?.metadata || {};
+  const userId = String(metadata.user_id || metadata.userId || '');
+  const planId = String(metadata.plan_id || metadata.planId || '') as PaidPlanId;
+  if (data?.status !== 'success') throw new Error('Payment has not been completed successfully.');
+  if (userId !== expectedUserId) throw new Error('This payment does not belong to the signed-in account.');
+  if (!(planId in PLAN_CONFIG)) throw new Error('The paid plan on this transaction is invalid.');
+  const plan = PLAN_CONFIG[planId];
+  if (Number(data.amount) !== plan.amountKobo || String(data.currency || '').toUpperCase() !== 'ZAR') {
+    throw new Error('Payment amount or currency does not match the selected plan.');
+  }
+  const customerEmail = String(data.customer?.email || '').toLowerCase();
+  const user = db.findUserById(expectedUserId);
+  if (!user || customerEmail !== user.email.toLowerCase()) throw new Error('The payment email does not match your account email.');
+  const activated = applyPaidPlan(user.id, planId, String(data.reference || ''));
+  if (!activated) throw new Error('Could not activate the plan for this account.');
+  return activated;
+}
+
+// Paystack checkout initialization. Amounts and plan entitlements are always determined server-side.
+apiRouter.post('/payments/paystack/initialize', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can purchase a plan.' });
+  const planId = String(req.body?.planId || '') as PaidPlanId;
+  if (planId !== 'starter' && planId !== 'pro') return res.status(400).json({ error: 'Choose a valid paid plan.' });
+  if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Paystack is not configured yet. Add PAYSTACK_SECRET_KEY to the server environment before accepting payments.' });
+  try {
+    const plan = PLAN_CONFIG[planId];
+    const reference = `midama_${user.id}_${Date.now()}_${crypto.randomBytes(5).toString('hex')}`;
+    const baseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        email: user.email,
+        amount: plan.amountKobo,
+        currency: 'ZAR',
+        reference,
+        callback_url: `${baseUrl}/?payment=paystack&reference=${encodeURIComponent(reference)}`,
+        metadata: { user_id: user.id, plan_id: plan.id, plan_name: plan.name, billing_period_days: 30, service: 'Mid-Ama Promo™ music distribution' },
+      }),
+    });
+    const result: any = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.status || !result?.data?.authorization_url) {
+      console.error('[Paystack] Initialize failed:', result?.message || response.status);
+      return res.status(502).json({ error: result?.message || 'Paystack could not start checkout. Please try again.' });
+    }
+    return res.json({ authorizationUrl: result.data.authorization_url, reference, planId, amount: plan.amountZar });
+  } catch (error: any) {
+    console.error('[Paystack] Initialize error:', error?.message || error);
+    return res.status(502).json({ error: 'Could not connect to Paystack. Please try again shortly.' });
+  }
+});
+
+apiRouter.get('/payments/plan', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user!.role !== 'client') return res.status(403).json({ error: 'This endpoint is for client accounts.' });
+  return res.json(planUsage(req.user!));
+});
+
+apiRouter.post('/payments/paystack/verify', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const reference = typeof req.body?.reference === 'string' ? req.body.reference.trim() : '';
+  if (!reference) return res.status(400).json({ error: 'Payment reference is required.' });
+  try {
+    const data = await verifyPaystackTransaction(reference);
+    const updated = activateFromVerifiedTransaction(data, req.user!.id);
+    const { passwordHash: _passwordHash, ...safeUser } = updated;
+    return res.json({ message: 'Payment verified and plan activated.', user: safeUser, plan: planUsage(updated) });
+  } catch (error: any) {
+    return res.status(400).json({ error: error?.message || 'Could not verify payment.' });
+  }
+});
+
+apiRouter.post('/payments/paystack/webhook', (req: Request, res: Response) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  const signature = req.header('x-paystack-signature') || '';
+  const rawBody = (req as any).rawBody as Buffer | undefined;
+  if (!secret || !rawBody || !signature) return res.status(400).send('Invalid webhook request.');
+  const expected = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+  const received = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  if (received.length !== expectedBuffer.length || !crypto.timingSafeEqual(received, expectedBuffer)) return res.status(401).send('Invalid signature.');
+  const event = req.body;
+  if (event?.event === 'charge.success') {
+    try {
+      const metadata = event?.data?.metadata || {};
+      const userId = String(metadata.user_id || metadata.userId || '');
+      if (userId) activateFromVerifiedTransaction(event.data, userId);
+    } catch (error: any) {
+      console.error('[Paystack webhook] Could not activate plan:', error?.message || error);
+      // Acknowledge signed events; the user can still verify from the callback page.
+    }
+  }
+  return res.status(200).json({ received: true });
+});
+
 // ----------------------------------------------------
 // AUTH ROUTES
 // ----------------------------------------------------
@@ -665,7 +835,7 @@ ${(release.statusHistory || []).map(h => `[${h.timestamp}] Status changed to ${h
 
 ================================================================================
 CONFIDENTIAL NOTICE: This document contains proprietary metadata submitted to MID-AMA PROMO™.
-Artists retain 100% master ownership and recording copyrights.
+Master ownership follows the client's applicable plan terms: Free is 95% artist / 5% Mid-Ama Promo; Starter and Pro are 100% artist-owned. Publishing rights are separate.
 ================================================================================
 `;
 
@@ -997,6 +1167,12 @@ apiRouter.get('/releases/:id', authMiddleware, (req: AuthenticatedRequest, res: 
 
 apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
+  if (user.role === 'client') {
+    const usage = planUsage(user);
+    if (usage.limits.releasesPerMonth !== null && usage.usage.releasesThisMonth >= usage.limits.releasesPerMonth) {
+      return res.status(403).json({ error: `You have reached your ${usage.planName} plan limit of ${usage.limits.releasesPerMonth} releases this month. Upgrade your plan to submit more releases.`, code: 'PLAN_RELEASE_LIMIT', plan: usage });
+    }
+  }
   const {
     title,
     releaseType,
@@ -1083,6 +1259,22 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
     ...(Array.isArray(featuredArtistProfiles) ? featuredArtistProfiles : []),
     ...(Array.isArray(artistProfiles) ? artistProfiles : []),
   ];
+  if (user.role === 'client') {
+    const usage = planUsage(user);
+    if (usage.limits.artists !== null) {
+      const existingArtists = new Set([...(user.artistName || user.name ? [user.artistName || user.name] : []), ...db.getReleases().filter(r => r.userId === user.id).flatMap(releaseArtistNames)].map(n => n.toLocaleLowerCase()));
+      const incomingArtists = [
+        ...effectivePrimaryArtists,
+        ...(Array.isArray(featuredArtists) ? featuredArtists : []),
+        ...allArtistProfiles.map((p: any) => p?.name),
+        ...(Array.isArray(tracks) ? tracks.flatMap((t: any) => [t?.primaryArtist, ...(Array.isArray(t?.featuredArtists) ? t.featuredArtists : []), ...(Array.isArray(t?.artistProfiles) ? t.artistProfiles.map((p: any) => p?.name) : [])]) : []),
+      ].map((n: any) => String(n || '').trim()).filter(Boolean);
+      const combined = new Set([...existingArtists, ...incomingArtists.map(n => n.toLocaleLowerCase())]);
+      if (combined.size > usage.limits.artists) {
+        return res.status(403).json({ error: `Your ${usage.planName} plan allows up to ${usage.limits.artists} unique artist profiles. This release would bring your account to ${combined.size}. Upgrade your plan or remove artists you do not need.`, code: 'PLAN_ARTIST_LIMIT', plan: usage });
+      }
+    }
+  }
   for (const prof of allArtistProfiles) {
     if (!prof?.name?.trim()) return res.status(400).json({ error: 'Every artist must have a name.' });
     if (prof.spotifyProfileUrl && !isValidHttpUrl(prof.spotifyProfileUrl)) {
@@ -1673,7 +1865,7 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
     return res.status(400).json({ error: 'Valid client email address is required.' });
   }
   if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Artist or Record Label name is required.' });
+    return res.status(400).json({ error: 'Artist name is required.' });
   }
   const normalizedFirstName = typeof realFirstName === 'string' ? realFirstName.trim() : '';
   const normalizedSurname = typeof realSurname === 'string' ? realSurname.trim() : '';
@@ -1770,7 +1962,7 @@ apiRouter.post('/admin/clients/:id/access-session', authMiddleware, adminOnly, (
 
 // Admin update client status (enable/disable)
 apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
-  const { status, name, realFirstName, realSurname, phone, disabledReason } = req.body;
+  const { status, name, realFirstName, realSurname, phone, disabledReason, planId } = req.body;
   const client = db.findUserById(req.params.id);
 
   if (!client || client.role !== 'client') {
@@ -1792,6 +1984,20 @@ apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: Authentic
   if (realFirstName !== undefined) updates.realFirstName = typeof realFirstName === 'string' ? realFirstName.trim() : '';
   if (realSurname !== undefined) updates.realSurname = typeof realSurname === 'string' ? realSurname.trim() : '';
   if (phone !== undefined) updates.phone = phone.trim();
+  if (planId !== undefined) {
+    if (!['free', 'starter', 'pro'].includes(planId)) {
+      return res.status(400).json({ error: 'Choose Free, Starter, or Pro.' });
+    }
+    updates.planId = planId;
+    if (planId === 'free') {
+      updates.planExpiresAt = null;
+      updates.planActivatedAt = null;
+    } else {
+      // Admin plan overrides are intended for testing/support and last 30 days.
+      updates.planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      updates.planActivatedAt = new Date().toISOString();
+    }
+  }
 
   const updated = db.updateUser(client.id, updates);
   const { passwordHash, ...safeUser } = updated!;
