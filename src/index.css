@@ -192,3 +192,92 @@ option { background: #e7e7eb; color: #222; }
 /* Modal close/back controls remain visible and usable above glass layers. */
 .fixed.inset-0 button { position: relative; z-index: 2; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+
+/* Dark mode contrast repair: retain the glass look while restoring readable contrast. */
+html[data-theme="dark"] {
+  --ma-bg: #090b10;
+  --ma-surface: rgba(20, 23, 31, .94);
+  --ma-surface-2: rgba(31, 35, 45, .96);
+  --ma-text: #f3f4f6;
+  --ma-muted: #b4bac6;
+  --ma-border: rgba(148, 163, 184, .28);
+  --ma-glass: rgba(255, 255, 255, .055);
+  color-scheme: dark;
+  background: #090b10;
+}
+html[data-theme="dark"] body {
+  color: #f3f4f6 !important;
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(127, 29, 29, .20), transparent 42%),
+    radial-gradient(ellipse at 90% 18%, rgba(51, 65, 85, .18), transparent 38%),
+    linear-gradient(145deg, #080a0f 0%, #10131b 54%, #090b10 100%) !important;
+}
+html[data-theme="dark"] body::before {
+  opacity: .10;
+  background-image: radial-gradient(rgba(255,255,255,.32) .6px, transparent .6px);
+}
+html[data-theme="dark"] header.sticky,
+html[data-theme="dark"] header[class*="sticky"] {
+  background: rgba(10, 12, 18, .88) !important;
+  border-color: rgba(148, 163, 184, .22) !important;
+}
+html[data-theme="dark"] [class*="bg-neutral-950"] { background-color: #090b10 !important; }
+html[data-theme="dark"] [class*="bg-neutral-900"] { background-color: rgba(20, 23, 31, .96) !important; }
+html[data-theme="dark"] [class*="bg-neutral-800"] { background-color: rgba(34, 39, 50, .96) !important; }
+html[data-theme="dark"] [class*="border-neutral-800"],
+html[data-theme="dark"] [class*="border-neutral-700"],
+html[data-theme="dark"] [class*="border-neutral-600"] { border-color: rgba(148, 163, 184, .30) !important; }
+html[data-theme="dark"] [class*="text-white"],
+html[data-theme="dark"] [class*="text-neutral-100"],
+html[data-theme="dark"] [class*="text-neutral-200"] { color: #f8fafc !important; }
+html[data-theme="dark"] [class*="text-neutral-300"] { color: #d1d5db !important; }
+html[data-theme="dark"] [class*="text-neutral-400"] { color: #b5bdca !important; }
+html[data-theme="dark"] [class*="text-neutral-500"] { color: #9aa4b2 !important; }
+html[data-theme="dark"] [class*="text-neutral-600"] { color: #8993a2 !important; }
+html[data-theme="dark"] .ma-theme-toggle {
+  color: #f8fafc !important;
+  background: rgba(20, 23, 31, .94) !important;
+  border-color: rgba(148, 163, 184, .36) !important;
+}
+html[data-theme="dark"] button:not([class*="bg-red-"]),
+html[data-theme="dark"] a[role="button"],
+html[data-theme="dark"] button[class*="bg-white"],
+html[data-theme="dark"] button[class*="bg-neutral-"] {
+  color: #f3f4f6;
+  background-color: rgba(37, 43, 55, .90) !important;
+  border-color: rgba(148, 163, 184, .30) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
+}
+html[data-theme="dark"] button:not([class*="bg-red-"]):hover,
+html[data-theme="dark"] a[role="button"]:hover {
+  background-color: rgba(55, 65, 81, .96) !important;
+}
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  color: #f8fafc !important;
+  background-color: rgba(15, 18, 26, .96) !important;
+  border-color: rgba(148, 163, 184, .34) !important;
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder { color: #a1aab8 !important; opacity: 1; }
+html[data-theme="dark"] option { background: #171b24; color: #f8fafc; }
+html[data-theme="dark"] .release-showcase {
+  background: radial-gradient(ellipse at 50% 0%, rgba(198,74,88,.14), transparent 54%), linear-gradient(180deg, #11141c, #0a0c12 55%, #10131a) !important;
+}
+html[data-theme="dark"] .dsp-pill {
+  color: #e5e7eb !important;
+  background: rgba(31, 35, 45, .82) !important;
+  border-color: rgba(148, 163, 184, .24) !important;
+}
+html[data-theme="dark"] .spotify-frame-wrap {
+  background: linear-gradient(145deg, rgba(31,35,45,.96), rgba(9,11,16,.98)) !important;
+  border-color: rgba(148, 163, 184, .24) !important;
+}
+html[data-theme="dark"] .ma-artist-manifesto { background: linear-gradient(145deg, rgba(31,35,45,.94), rgba(15,18,26,.96)); }
+html[data-theme="dark"] .ma-manifesto-copy { background: linear-gradient(135deg, rgba(31,35,45,.72), rgba(0,0,0,.35)); }
+html[data-theme="dark"] .ma-glass-type {
+  background-image: linear-gradient(155deg,#fff 4%,#b8c0cc 20%,#fff 33%,#818b99 48%,#f7f7f7 63%,#a2acb9 78%,#fff 96%);
+  -webkit-text-stroke-color: rgba(255,255,255,.50);
+}

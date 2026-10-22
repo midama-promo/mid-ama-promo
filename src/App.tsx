@@ -180,7 +180,10 @@ function MainContent() {
           onClose={() => setSelectedRelease(null)}
           onOpenSharePage={handleOpenShare}
           isAdmin={true}
-          onStatusUpdated={(updated) => setSelectedRelease(updated)}
+          onStatusUpdated={(updated) => {
+            setSelectedRelease(updated);
+            window.dispatchEvent(new CustomEvent('midama:release-status-updated', { detail: updated }));
+          }}
         />
 
         {/* Notification Center */}

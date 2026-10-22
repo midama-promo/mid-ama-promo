@@ -19,6 +19,9 @@ export interface User {
   releases?: Release[];
   latestRelease?: string | null;
   privateAccessUrl?: string | null;
+  /** Client-confirmed Spotify for Artists profile claim status. */
+  spotifyProfileClaimed?: boolean;
+  spotifyProfileClaimedAt?: string | null;
 }
 
 export type ReleaseStatus =

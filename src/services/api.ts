@@ -78,6 +78,13 @@ class ApiService {
     return this.request<{ user: User }>('/api/auth/me');
   }
 
+  async setSpotifyProfileClaimed(claimed: boolean): Promise<{ message: string; user: User }> {
+    return this.request<{ message: string; user: User }>('/api/auth/spotify-profile-claim', {
+      method: 'PATCH',
+      body: JSON.stringify({ claimed }),
+    });
+  }
+
   async logout(): Promise<void> {
     try {
       await this.request<{ message: string }>('/api/auth/logout', { method: 'POST' });

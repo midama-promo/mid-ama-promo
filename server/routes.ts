@@ -396,6 +396,26 @@ apiRouter.get('/auth/me', authMiddleware, (req: AuthenticatedRequest, res: Respo
   res.json({ user: safeUser });
 });
 
+// Client self-report for Spotify for Artists profile claiming.
+apiRouter.patch('/auth/spotify-profile-claim', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can update this confirmation.' });
+  if (typeof req.body?.claimed !== 'boolean') {
+    return res.status(400).json({ error: 'Please confirm whether you have claimed your Spotify for Artists profile.' });
+  }
+
+  const updated = db.updateUser(req.user.id, {
+    spotifyProfileClaimed: req.body.claimed,
+    spotifyProfileClaimedAt: req.body.claimed ? new Date().toISOString() : null,
+  });
+  if (!updated) return res.status(404).json({ error: 'Client account not found.' });
+  const { passwordHash: _passwordHash, ...safeUser } = updated;
+  return res.json({
+    message: req.body.claimed ? 'Spotify profile claim marked as completed.' : 'Spotify profile claim marked as not yet completed.',
+    user: safeUser,
+  });
+});
+
 // Password creation/reset through a bare email is intentionally disabled.
 // Authentication is email OTP based; this closes any previous password takeover path.
 apiRouter.post('/auth/set-password', (_req: Request, res: Response) => {
@@ -1236,7 +1256,7 @@ apiRouter.post('/releases/:id/approve', authMiddleware, adminOnly, async (req: A
   });
 
   // Notify client of approval
-  await sendNotification({
+  void sendNotification({
     recipientEmail: existing.userEmail,
     recipientName: existing.artistLabelName,
     subject: `Release Approved: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
@@ -1247,7 +1267,7 @@ apiRouter.post('/releases/:id/approve', authMiddleware, adminOnly, async (req: A
       approvalDate: now,
       note: req.body.note,
     }
-  });
+  }).catch((error) => console.error('Release status notification failed:', error));
 
   res.json({
     message: `Release ${existing.refNumber} has been approved!`,
@@ -1326,7 +1346,7 @@ apiRouter.post('/releases/:id/complete', authMiddleware, adminOnly, async (req: 
   });
 
   // Notify client
-  await sendNotification({
+  void sendNotification({
     recipientEmail: existing.userEmail,
     recipientName: existing.artistLabelName,
     subject: `Release Distribution Completed: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
@@ -1336,7 +1356,7 @@ apiRouter.post('/releases/:id/complete', authMiddleware, adminOnly, async (req: 
       title: existing.title,
       note: req.body.note,
     }
-  });
+  }).catch((error) => console.error('Release status notification failed:', error));
 
   res.json({
     message: `Release ${existing.refNumber} marked as Completed.`,
@@ -1373,7 +1393,7 @@ apiRouter.post('/releases/:id/deny', authMiddleware, adminOnly, async (req: Auth
   });
 
   // Notify client of denial with reason
-  await sendNotification({
+  void sendNotification({
     recipientEmail: existing.userEmail,
     recipientName: existing.artistLabelName,
     subject: `Release Denied: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
@@ -1383,7 +1403,7 @@ apiRouter.post('/releases/:id/deny', authMiddleware, adminOnly, async (req: Auth
       title: existing.title,
       reason: reason.trim(),
     }
-  });
+  }).catch((error) => console.error('Release status notification failed:', error));
 
   res.json({
     message: `Release ${existing.refNumber} has been denied.`,
@@ -1419,7 +1439,7 @@ apiRouter.post('/releases/:id/request-corrections', authMiddleware, adminOnly, a
   });
 
   // Notify client
-  await sendNotification({
+  void sendNotification({
     recipientEmail: existing.userEmail,
     recipientName: existing.artistLabelName,
     subject: `Corrections Required: ${existing.title} (${existing.refNumber}) - Mid-Ama Promo™`,
@@ -1429,7 +1449,7 @@ apiRouter.post('/releases/:id/request-corrections', authMiddleware, adminOnly, a
       title: existing.title,
       note: note.trim(),
     }
-  });
+  }).catch((error) => console.error('Release status notification failed:', error));
 
   res.json({
     message: `Corrections requested for ${existing.refNumber}.`,
