@@ -133,7 +133,7 @@ export const Footer: React.FC<FooterProps> = ({
               Artwork: 3000×3000 to 4000×4000 pixels square JPG/PNG.
             </p>
             <p className="text-[11px] text-neutral-400 leading-normal">
-              Master ownership depends on the selected plan: Free is 95% artist / 5% Mid-Ama Promo; Starter and Pro are 100% artist-owned.
+              Master ownership: Free, Starter, and Pro plans provide 100% artist ownership.
             </p>
           </div>
 

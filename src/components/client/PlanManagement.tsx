@@ -4,8 +4,8 @@ import { api, PlanUsageResponse } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 const planCards = [
-  { id: 'free' as const, name: 'Free', price: 0, artists: 'Up to 10 artist profiles', releases: '10 releases / month', accent: 'neutral', features: ['Client dashboard and release tracking', 'Upload audio, artwork and metadata', '80% artist / 20% Mid-Ama Promo royalty split', '95% artist / 5% Mid-Ama Promo master ownership', 'Manual submission review'] },
-  { id: 'starter' as const, name: 'Starter', price: 99, artists: 'Up to 20 artist profiles', releases: '50 releases / month', accent: 'red', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority processing for complete submissions', 'Release corrections and metadata support'] },
+  { id: 'free' as const, name: 'Free', price: 0, artists: 'Up to 10 artist profiles', releases: '50 releases / month', accent: 'neutral', features: ['Client dashboard and release tracking', 'Upload audio, artwork and metadata', '80% artist / 20% Mid-Ama Promo royalty split', '100% artist master ownership', 'Manual submission review'] },
+  { id: 'starter' as const, name: 'Starter', price: 99, artists: 'Up to 20 artist profiles', releases: 'Unlimited releases', accent: 'red', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority processing for complete submissions', 'Release corrections and metadata support'] },
   { id: 'pro' as const, name: 'Pro', price: 449, artists: 'Unlimited artist profiles', releases: 'Unlimited releases', accent: 'purple', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority support and processing', 'Advanced artist catalogue tools'] },
 ];
 

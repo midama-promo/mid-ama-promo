@@ -15,7 +15,7 @@ export const Policies: React.FC = () => (
         </article>
         <article className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/40">
           <h3 className="font-bold text-white">Master ownership</h3>
-          <p className="mt-2 text-sm text-neutral-400">Free: 95% of the master recording is owned by the artist/client and 5% by Mid-Ama Promo. Starter and Pro: 100% of the master recording is owned by the artist/client. Publishing rights are not included in this master-ownership split. The applicable release agreement should record the agreed ownership terms.</p>
+          <p className="mt-2 text-sm text-neutral-400">Free, Starter, and Pro: 100% of the master recording is owned by the artist/client. Publishing rights are not included in this master-ownership split. The applicable release agreement should record the agreed ownership terms.</p>
         </article>
         <article className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/40">
           <h3 className="font-bold text-white">Takedowns</h3>

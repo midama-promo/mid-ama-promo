@@ -841,7 +841,7 @@ ${(release.statusHistory || []).map(h => `[${h.timestamp}] Status changed to ${h
 
 ================================================================================
 CONFIDENTIAL NOTICE: This document contains proprietary metadata submitted to MID-AMA PROMO™.
-Master ownership follows the client's applicable plan terms: Free is 95% artist / 5% Mid-Ama Promo; Starter and Pro are 100% artist-owned. Publishing rights are separate.
+Master ownership: Free, Starter, and Pro plans are 100% artist-owned. Publishing rights are separate.
 ================================================================================
 `;
 
@@ -1250,9 +1250,8 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   }
 
   // Profile URL validation helper
-  const isValidHttpUrl = (value?: unknown) => {
-    const str = typeof value === 'string' ? value : '';
-    if (!str.trim()) return true;
+  const isValidHttpUrl = (str?: string) => {
+    if (!str || !str.trim()) return true;
     try {
       const u = new URL(str.trim());
       return u.protocol === 'http:' || u.protocol === 'https:';
@@ -1302,7 +1301,7 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   // Validate lossless audio files & song artist metadata
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
-    if (typeof t.title !== 'string' || !t.title.trim()) {
+    if (!t.title || !t.title.trim()) {
       return res.status(400).json({ error: 'Every audio track must have a track title.' });
     }
     if (!t.filename || !/\.mp3$/i.test(t.filename)) {
@@ -1346,7 +1345,7 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
     releaseType,
     primaryArtists: effectivePrimaryArtists,
     featuredArtists: Array.isArray(featuredArtists)
-      ? featuredArtists.map((a: string) => a.trim()).filter(Boolean)
+      ? featuredArtists.map((a: unknown) => typeof a === 'string' ? a.trim() : '').filter(Boolean)
       : Array.isArray(featuredArtistProfiles)
       ? featuredArtistProfiles.map((p: any) => p.name).filter(Boolean)
       : [],
@@ -1356,8 +1355,8 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
     genre,
     subGenre: subGenre || undefined,
     language: language || 'Zulu / English',
-    composers: Array.isArray(composers) ? composers.map((c: string) => c.trim()).filter(Boolean) : [],
-    producers: Array.isArray(producers) ? producers.map((p: string) => p.trim()).filter(Boolean) : [],
+    composers: Array.isArray(composers) ? composers.map((c: unknown) => typeof c === 'string' ? c.trim() : '').filter(Boolean) : [],
+    producers: Array.isArray(producers) ? producers.map((p: unknown) => typeof p === 'string' ? p.trim() : '').filter(Boolean) : [],
     targetReleaseDate,
     previouslyReleased: !!previouslyReleased,
     previousReleaseDetails: previousReleaseDetails || undefined,

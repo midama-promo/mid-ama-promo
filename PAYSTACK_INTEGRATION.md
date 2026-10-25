@@ -2,8 +2,8 @@
 
 ## Packages currently configured
 
-- Free: R0/month; up to 10 new release submissions in any rolling 30-day window and 10 unique artist profiles.
-- Starter: R99 per 30-day paid period; up to 50 release submissions in any rolling 30-day window and 20 unique artist profiles.
+- Free: R0/month; up to 50 new release submissions in any rolling 30-day window and 10 unique artist profiles.
+- Starter: R99 per 30-day paid period; unlimited release submissions in any rolling 30-day window and up to 20 unique artist profiles.
 - Pro: R449 per 30-day paid period; unlimited release submissions and artist profiles, subject to fair-use policy.
 
 Each submitted Single, EP or Album counts as one release submission, regardless of track count. The server enforces the limits; changing frontend state cannot bypass them. Artist profiles are counted by unique artist name across the account's release metadata, including the registered artist name.
