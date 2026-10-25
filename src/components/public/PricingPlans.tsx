@@ -4,8 +4,8 @@ import { Check, Crown, Music2, Sparkles } from 'lucide-react';
 interface PricingPlansProps { onChoosePlan: () => void; }
 
 const plans = [
-  { name: 'Free', price: 'R0', subtitle: 'For new independent artists', icon: Music2, popular: false, features: ['10 release submissions per month', 'Artist receives 80% of applicable royalties', 'Mid-Ama Promo receives 20% of applicable royalties', 'Artist owns 95% of the master; Mid-Ama Promo owns 5%', 'Up to 10 artist profiles', 'Private client dashboard and release tracking'] },
-  { name: 'Starter', price: 'R99', subtitle: 'For independent artists', icon: Sparkles, popular: true, features: ['50 release submissions per month', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Up to 20 artist profiles', 'Priority processing and metadata support'] },
+  { name: 'Free', price: 'R0', subtitle: 'For new independent artists', icon: Music2, popular: false, features: ['50 release submissions per month', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Up to 10 artist profiles', 'Private client dashboard and release tracking'] },
+  { name: 'Starter', price: 'R99', subtitle: 'For independent artists', icon: Sparkles, popular: true, features: ['Unlimited release submissions', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Up to 20 artist profiles', 'Priority processing and metadata support'] },
   { name: 'Pro', price: 'R449', subtitle: 'For high-volume independent artists', icon: Crown, popular: false, features: ['Unlimited release submissions', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Unlimited artist profiles', 'Priority support and advanced catalogue tools'] },
 ];
 

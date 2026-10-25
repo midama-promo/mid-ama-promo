@@ -216,8 +216,8 @@ function adminOnly(req: AuthenticatedRequest, res: Response, next: NextFunction)
 
 
 const PLAN_CONFIG = {
-  free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 10, artistLimit: 10 },
-  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: 50, artistLimit: 20 },
+  free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 50, artistLimit: 10 },
+  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: null as number | null, artistLimit: 20 },
   pro: { id: 'pro' as const, name: 'Pro', amountZar: 449, amountKobo: 44900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
 };
 type PaidPlanId = 'starter' | 'pro';
@@ -1206,7 +1206,7 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   } = req.body;
 
   // Strict Validation
-  if (!title || !title.trim()) {
+  if (typeof title !== 'string' || !title.trim()) {
     return res.status(400).json({ error: 'Release title is required.' });
   }
   if (!releaseType || !['Single', 'EP', 'Album'].includes(releaseType)) {
@@ -1250,8 +1250,9 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   }
 
   // Profile URL validation helper
-  const isValidHttpUrl = (str?: string) => {
-    if (!str || !str.trim()) return true;
+  const isValidHttpUrl = (value?: unknown) => {
+    const str = typeof value === 'string' ? value : '';
+    if (!str.trim()) return true;
     try {
       const u = new URL(str.trim());
       return u.protocol === 'http:' || u.protocol === 'https:';
@@ -1301,7 +1302,7 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   // Validate lossless audio files & song artist metadata
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
-    if (!t.title || !t.title.trim()) {
+    if (typeof t.title !== 'string' || !t.title.trim()) {
       return res.status(400).json({ error: 'Every audio track must have a track title.' });
     }
     if (!t.filename || !/\.mp3$/i.test(t.filename)) {

@@ -283,7 +283,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     if (isOpen) {
       try {
         const saved = localStorage.getItem(DRAFT_KEY);
-        if (saved && !title && primaryArtistsList.every((a) => !a.name.trim())) {
+        if (saved && !title && primaryArtistsList.every((a) => !(a.name || '').trim())) {
           setHasDraftNotice(true);
         }
       } catch (_) {}
@@ -350,10 +350,24 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         if (d.title) setTitle(d.title);
         if (d.releaseType) setReleaseType(d.releaseType);
         if (Array.isArray(d.primaryArtistsList) && d.primaryArtistsList.length > 0) {
-          setPrimaryArtistsList(d.primaryArtistsList);
+          setPrimaryArtistsList(d.primaryArtistsList.map((a: any, i: number) => ({
+            id: a?.id || `pa_${i + 1}`,
+            name: typeof a?.name === 'string' ? a.name : '',
+            spotifyProfileUrl: typeof a?.spotifyProfileUrl === 'string' ? a.spotifyProfileUrl : '',
+            appleMusicProfileUrl: typeof a?.appleMusicProfileUrl === 'string' ? a.appleMusicProfileUrl : '',
+            spotifyProfileCreateRequested: !!a?.spotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!a?.appleMusicProfileCreateRequested,
+          })));
         }
         if (Array.isArray(d.featuredArtistsList)) {
-          setFeaturedArtistsList(d.featuredArtistsList);
+          setFeaturedArtistsList(d.featuredArtistsList.map((a: any, i: number) => ({
+            id: a?.id || `fa_${i + 1}`,
+            name: typeof a?.name === 'string' ? a.name : '',
+            spotifyProfileUrl: typeof a?.spotifyProfileUrl === 'string' ? a.spotifyProfileUrl : '',
+            appleMusicProfileUrl: typeof a?.appleMusicProfileUrl === 'string' ? a.appleMusicProfileUrl : '',
+            spotifyProfileCreateRequested: !!a?.spotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!a?.appleMusicProfileCreateRequested,
+          })));
         }
         if (d.genre) setGenre(d.genre);
         if (d.subGenre) setSubGenre(d.subGenre);
@@ -375,6 +389,10 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           setTracks(
             d.tracks.map((t: any) => ({
               ...t,
+              title: typeof t?.title === 'string' ? t.title : '',
+              version: typeof t?.version === 'string' ? t.version : 'Original Mix',
+              primaryArtists: Array.isArray(t?.primaryArtists) ? t.primaryArtists.map((a: any) => ({ ...a, name: typeof a?.name === 'string' ? a.name : '', spotifyProfileUrl: typeof a?.spotifyProfileUrl === 'string' ? a.spotifyProfileUrl : '', appleMusicProfileUrl: typeof a?.appleMusicProfileUrl === 'string' ? a.appleMusicProfileUrl : '' })) : [{ name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '' }],
+              featuredArtists: Array.isArray(t?.featuredArtists) ? t.featuredArtists.map((a: any) => ({ ...a, name: typeof a?.name === 'string' ? a.name : '', spotifyProfileUrl: typeof a?.spotifyProfileUrl === 'string' ? a.spotifyProfileUrl : '', appleMusicProfileUrl: typeof a?.appleMusicProfileUrl === 'string' ? a.appleMusicProfileUrl : '' })) : [],
               file: null,
             }))
           );
@@ -446,10 +464,10 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const hasUnsavedProgress = () => {
     if (submittedRelease) return false;
     return !!(
-      title.trim() ||
-      primaryArtistsList.some((a) => a.name.trim()) ||
+      (title || '').trim() ||
+      primaryArtistsList.some((a) => (a.name || '').trim()) ||
       uploadedArtworkUrl ||
-      tracks.some((t) => t.fileUrl || t.title.trim())
+      tracks.some((t) => t.fileUrl || t.(title || '').trim())
     );
   };
 
@@ -595,8 +613,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // Add composer
   const handleAddComposer = () => {
-    if (composerInput.trim() && !composers.includes(composerInput.trim())) {
-      setComposers([...composers, composerInput.trim()]);
+    if ((composerInput || '').trim() && !composers.includes((composerInput || '').trim())) {
+      setComposers([...composers, (composerInput || '').trim()]);
       setComposerInput('');
     }
   };
@@ -607,8 +625,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // Add producer
   const handleAddProducer = () => {
-    if (producerInput.trim() && !producers.includes(producerInput.trim())) {
-      setProducers([...producers, producerInput.trim()]);
+    if ((producerInput || '').trim() && !producers.includes((producerInput || '').trim())) {
+      setProducers([...producers, (producerInput || '').trim()]);
       setProducerInput('');
     }
   };
@@ -805,13 +823,13 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // Step 1 Validation
   const validateStep1 = (): boolean => {
-    if (!title.trim()) {
+    if (!(title || '').trim()) {
       setSubmitError('Please enter the release title.');
       return false;
     }
 
     // Require Primary Artist
-    const hasPrimaryArtist = primaryArtistsList.some((a) => a.name.trim().length > 0);
+    const hasPrimaryArtist = primaryArtistsList.some((a) => (a.name || '').trim().length > 0);
     if (!hasPrimaryArtist) {
       setSubmitError('Please specify at least one Primary Artist name.');
       return false;
@@ -833,7 +851,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     // Validate Featured Artists
     for (let i = 0; i < featuredArtistsList.length; i++) {
       const fa = featuredArtistsList[i];
-      if (!fa.name.trim()) {
+      if (!(fa.name || '').trim()) {
         setSubmitError(`Please provide the name for Featured Artist #${i + 1} or remove the row.`);
         return false;
       }
@@ -887,7 +905,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
     for (let i = 0; i < tracks.length; i++) {
       const t = tracks[i];
-      if (!t.title.trim()) {
+      if (!t.(title || '').trim()) {
         setSubmitError(`Please provide a track title for Track #${i + 1}.`);
         return false;
       }
@@ -903,14 +921,14 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       // For EP/Album releases, require at least one primary artist for every song.
       const songPrimaryArtists = getTrackPrimaryArtists(t);
       if (isEpOrAlbum) {
-        const namedPrimaryArtists = songPrimaryArtists.filter((a) => a.name.trim());
+        const namedPrimaryArtists = songPrimaryArtists.filter((a) => (a.name || '').trim());
         if (namedPrimaryArtists.length === 0) {
           setSubmitError(`Track #${i + 1} (${t.title}) requires at least one Primary Artist for ${releaseType === 'EP' ? 'EP' : 'Album'} releases.`);
           return false;
         }
         for (let pIdx = 0; pIdx < songPrimaryArtists.length; pIdx++) {
           const pa = songPrimaryArtists[pIdx];
-          if (!pa.name.trim()) {
+          if (!(pa.name || '').trim()) {
             setSubmitError(`Track #${i + 1} Primary Artist #${pIdx + 1} requires a name or must be removed.`);
             return false;
           }
@@ -929,7 +947,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       if (t.featuredArtists) {
         for (let faIdx = 0; faIdx < t.featuredArtists.length; faIdx++) {
           const fa = t.featuredArtists[faIdx];
-          if (!fa.name.trim()) {
+          if (!(fa.name || '').trim()) {
             setSubmitError(`Track #${i + 1} featured artist #${faIdx + 1} requires a name.`);
             return false;
           }
@@ -967,40 +985,40 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       setIsSubmitting(true);
       setSubmitError(null);
 
-      const effectivePrimaryArtists = primaryArtistsList.map((a) => a.name.trim()).filter(Boolean);
-      const effectiveFeaturedArtists = featuredArtistsList.map((a) => a.name.trim()).filter(Boolean);
+      const effectivePrimaryArtists = primaryArtistsList.map((a) => (a.name || '').trim()).filter(Boolean);
+      const effectiveFeaturedArtists = featuredArtistsList.map((a) => (a.name || '').trim()).filter(Boolean);
 
       const primaryArtistProfiles: ArtistCredit[] = primaryArtistsList
-        .filter((a) => a.name.trim())
+        .filter((a) => (a.name || '').trim())
         .map((a) => ({
-          name: a.name.trim(),
+          name: (a.name || '').trim(),
           role: 'primary',
-          spotifyProfileUrl: a.spotifyProfileUrl.trim() || undefined,
-          appleMusicProfileUrl: a.appleMusicProfileUrl.trim() || undefined,
+          spotifyProfileUrl: (a.spotifyProfileUrl || '').trim() || undefined,
+          appleMusicProfileUrl: (a.appleMusicProfileUrl || '').trim() || undefined,
           spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
           appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const featuredArtistProfiles: ArtistCredit[] = featuredArtistsList
-        .filter((a) => a.name.trim())
+        .filter((a) => (a.name || '').trim())
         .map((a) => ({
-          name: a.name.trim(),
+          name: (a.name || '').trim(),
           role: 'featured',
-          spotifyProfileUrl: a.spotifyProfileUrl.trim() || undefined,
-          appleMusicProfileUrl: a.appleMusicProfileUrl.trim() || undefined,
+          spotifyProfileUrl: (a.spotifyProfileUrl || '').trim() || undefined,
+          appleMusicProfileUrl: (a.appleMusicProfileUrl || '').trim() || undefined,
           spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
           appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const finalTracks = tracks.map((t, idx) => {
-        const trackPrimaryArtists = getTrackPrimaryArtists(t).filter((a) => a.name.trim());
-        const trackPrimary = trackPrimaryArtists.map((a) => a.name.trim()).join(', ') || effectivePrimaryArtists[0] || user?.name || 'Artist';
+        const trackPrimaryArtists = getTrackPrimaryArtists(t).filter((a) => (a.name || '').trim());
+        const trackPrimary = trackPrimaryArtists.map((a) => (a.name || '').trim()).join(', ') || effectivePrimaryArtists[0] || user?.name || 'Artist';
         const firstTrackPrimary = trackPrimaryArtists[0];
         const trackSpotify = firstTrackPrimary?.spotifyProfileUrl?.trim() || t.primaryArtistSpotifyUrl?.trim() || primaryArtistProfiles[0]?.spotifyProfileUrl;
         const trackApple = firstTrackPrimary?.appleMusicProfileUrl?.trim() || t.primaryArtistAppleMusicUrl?.trim() || primaryArtistProfiles[0]?.appleMusicProfileUrl;
 
         const songPrimaryProfiles: ArtistCredit[] = trackPrimaryArtists.map((pa) => ({
-          name: pa.name.trim(),
+          name: (pa.name || '').trim(),
           role: 'primary' as const,
           spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || undefined,
           appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || undefined,
@@ -1009,9 +1027,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         }));
 
         const songFeaturedProfiles: ArtistCredit[] = (t.featuredArtists || [])
-          .filter((fa) => fa.name.trim())
+          .filter((fa) => (fa.name || '').trim())
           .map((fa) => ({
-            name: fa.name.trim(),
+            name: (fa.name || '').trim(),
             role: 'featured' as const,
             spotifyProfileUrl: fa.spotifyProfileUrl?.trim() || undefined,
             appleMusicProfileUrl: fa.appleMusicProfileUrl?.trim() || undefined,
@@ -1034,7 +1052,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         return {
           id: t.id || `trk_${Date.now()}_${idx + 1}`,
           trackNumber: idx + 1,
-          title: t.title.trim(),
+          title: t.(title || '').trim(),
           version: t.version || 'Original Mix',
           filename: t.filename || `track_${idx + 1}.mp3`,
           storedFilename: t.storedFilename,
@@ -1045,13 +1063,13 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           primaryArtist: trackPrimary,
           primaryArtistSpotifyUrl: trackSpotify || undefined,
           primaryArtistAppleMusicUrl: trackApple || undefined,
-          featuredArtists: (t.featuredArtists || []).map((fa) => fa.name.trim()).filter(Boolean),
+          featuredArtists: (t.featuredArtists || []).map((fa) => (fa.name || '').trim()).filter(Boolean),
           artistProfiles: trackArtistProfiles,
         };
       });
 
       const payload: Partial<Release> = {
-        title: title.trim(),
+        title: (title || '').trim(),
         releaseType,
         primaryArtists: effectivePrimaryArtists.length > 0 ? effectivePrimaryArtists : [user?.name || 'Artist'],
         featuredArtists: effectiveFeaturedArtists,
@@ -1059,21 +1077,21 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         featuredArtistProfiles,
         artistProfiles: [...primaryArtistProfiles, ...featuredArtistProfiles],
         genre,
-        subGenre: subGenre.trim() || undefined,
-        language: language.trim() || 'Zulu',
-        composers: composers.length > 0 ? composers : composerInput.trim() ? [composerInput.trim()] : [],
-        producers: producers.length > 0 ? producers : producerInput.trim() ? [producerInput.trim()] : [],
+        subGenre: (subGenre || '').trim() || undefined,
+        language: (language || '').trim() || 'Zulu',
+        composers: composers.length > 0 ? composers : (composerInput || '').trim() ? [(composerInput || '').trim()] : [],
+        producers: producers.length > 0 ? producers : (producerInput || '').trim() ? [(producerInput || '').trim()] : [],
         targetReleaseDate,
         previouslyReleased,
         previousReleaseDetails: previouslyReleased ? previousReleaseDetails : undefined,
-        cLine: cLine.trim(),
-        pLine: pLine.trim(),
+        cLine: (cLine || '').trim(),
+        pLine: (pLine || '').trim(),
         artworkUrl: uploadedArtworkUrl!,
         artworkFilename: uploadedArtworkFilename || 'cover.jpg',
         storedArtworkFilename: storedArtworkFilename || undefined,
         artworkDimensions: artworkDimensions || { width: 1400, height: 1400 },
         tracks: finalTracks as any,
-        clientNotes: clientNotes.trim(),
+        clientNotes: (clientNotes || '').trim(),
         allowPublicShare: true,
       };
 
@@ -1101,8 +1119,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     onClose();
   };
 
-  const effectivePrimaryDisplay = primaryArtistsList.map((a) => a.name.trim()).filter(Boolean);
-  const effectiveFeaturedDisplay = featuredArtistsList.map((a) => a.name.trim()).filter(Boolean);
+  const effectivePrimaryDisplay = primaryArtistsList.map((a) => (a.name || '').trim()).filter(Boolean);
+  const effectiveFeaturedDisplay = featuredArtistsList.map((a) => (a.name || '').trim()).filter(Boolean);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
