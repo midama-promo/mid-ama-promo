@@ -467,7 +467,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       (title || '').trim() ||
       primaryArtistsList.some((a) => (a.name || '').trim()) ||
       uploadedArtworkUrl ||
-      tracks.some((t) => t.fileUrl || t.(title || '').trim())
+      tracks.some((t) => t.fileUrl || (t.title || '').trim())
     );
   };
 
