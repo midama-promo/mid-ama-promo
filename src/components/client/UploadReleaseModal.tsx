@@ -186,6 +186,19 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [primaryArtistsList, setPrimaryArtistsList] = useState<ArtistFormItem[]>([
     { id: 'pa_1', name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
   ]);
+  const [rememberedPrimaryArtists, setRememberedPrimaryArtists] = useState<string[]>([]);
+  useEffect(() => {
+    try { const saved = JSON.parse(localStorage.getItem('midama-primary-artists-v1') || '[]'); setRememberedPrimaryArtists(Array.isArray(saved) ? saved.filter((v): v is string => typeof v === 'string' && v.trim()) : []); } catch { setRememberedPrimaryArtists([]); }
+  }, []);
+  useEffect(() => {
+    const ownName = (user?.name || '').trim().toLocaleLowerCase();
+    const names = primaryArtistsList.map(a => (a?.name || '').trim()).filter(n => n && n.toLocaleLowerCase() !== ownName);
+    if (!names.length) return;
+    const merged = Array.from(new Set([...rememberedPrimaryArtists, ...names]));
+    if (merged.length !== rememberedPrimaryArtists.length || merged.some((n, i) => n !== rememberedPrimaryArtists[i])) {
+      setRememberedPrimaryArtists(merged); try { localStorage.setItem('midama-primary-artists-v1', JSON.stringify(merged)); } catch {}
+    }
+  }, [primaryArtistsList, user?.name]);
   const [featuredArtistsList, setFeaturedArtistsList] = useState<ArtistFormItem[]>([]);
   const [genre, setGenre] = useState('Amapiano');
   const [subGenre, setSubGenre] = useState('');
@@ -194,6 +207,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [composers, setComposers] = useState<string[]>([]);
   const [producerInput, setProducerInput] = useState('');
   const [producers, setProducers] = useState<string[]>([]);
+  useEffect(() => {
+    const legalName = (user?.name || '').trim();
+    if (!legalName) return;
+    setComposers(current => current.includes(legalName) ? current : [legalName, ...current]);
+    setProducers(current => current.includes(legalName) ? current : [legalName, ...current]);
+  }, [user?.name]);
   const [targetReleaseDate, setTargetReleaseDate] = useState(minTargetDate);
   const [previouslyReleased, setPreviouslyReleased] = useState(false);
   const [previousReleaseDetails, setPreviousReleaseDetails] = useState('');
@@ -602,6 +621,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   };
 
   const handleRemoveComposer = (idx: number) => {
+    if (composers[idx]?.trim() === (user?.name || '').trim()) return;
     setComposers(composers.filter((_, i) => i !== idx));
   };
 
@@ -614,6 +634,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   };
 
   const handleRemoveProducer = (idx: number) => {
+    if (producers[idx]?.trim() === (user?.name || '').trim()) return;
     setProducers(producers.filter((_, i) => i !== idx));
   };
 
@@ -1337,6 +1358,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         </button>
                     </div>
 
+                    <datalist id="midama-saved-primary-artists">
+                      {rememberedPrimaryArtists.filter(name => name.toLocaleLowerCase() !== (user?.name || '').trim().toLocaleLowerCase()).map(name => <option key={name} value={name} />)}
+                    </datalist>
                     {primaryArtistsList.map((artist, idx) => (
                       <div
                         key={artist.id}
@@ -1368,6 +1392,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                             value={artist.name}
                             onChange={(e) => handleUpdatePrimaryArtist(idx, 'name', e.target.value)}
                             placeholder="Enter primary artist name"
+                            list="midama-saved-primary-artists"
                             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600"
                           />
                         </div>
@@ -1560,7 +1585,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                        Composer(s) / Songwriter(s)
+                        Composer(s) / Songwriter(s) — your real name and surname are compulsory
                       </label>
                       <div className="flex gap-2 mb-2">
                         <input
@@ -1573,7 +1598,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               handleAddComposer();
                             }
                           }}
-                          placeholder="Add composer name..."
+                          placeholder="Add another composer / songwriter (optional)..."
                           className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
                         />
                         <button
@@ -1595,6 +1620,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveComposer(i)}
+                                disabled={c.trim() === (user?.name || '').trim()}
                                 className="text-neutral-500 hover:text-red-400"
                               >
                                 ×
@@ -1607,7 +1633,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                        Producer(s)
+                        Producer(s) — your real name and surname are compulsory
                       </label>
                       <div className="flex gap-2 mb-2">
                         <input
@@ -1620,7 +1646,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               handleAddProducer();
                             }
                           }}
-                          placeholder="Add producer name..."
+                          placeholder="Add another producer (optional)..."
                           className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
                         />
                         <button
@@ -1642,6 +1668,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveProducer(i)}
+                                disabled={p.trim() === (user?.name || '').trim()}
                                 className="text-neutral-500 hover:text-red-400"
                               >
                                 ×

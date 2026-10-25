@@ -216,8 +216,8 @@ function adminOnly(req: AuthenticatedRequest, res: Response, next: NextFunction)
 
 
 const PLAN_CONFIG = {
-  free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 50, artistLimit: 10 },
-  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: null as number | null, artistLimit: 20 },
+  free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 50, artistLimit: 50 },
+  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
   pro: { id: 'pro' as const, name: 'Pro', amountZar: 449, amountKobo: 44900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
 };
 type PaidPlanId = 'starter' | 'pro';
