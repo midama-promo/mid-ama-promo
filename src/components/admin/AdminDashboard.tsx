@@ -80,6 +80,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Filter & Search states
   const [releaseSearch, setReleaseSearch] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
 
   // Manual Client Registration modal
@@ -292,21 +293,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const [statsRes, relRes, cliRes, enqRes, catRes, royaltyRes] = await Promise.all([
-        api.getAdminStats(),
-        api.getReleases(),
-        api.getAdminClients(),
-        api.getAdminEnquiries(),
-        api.getAdminCatalogue(),
-        api.getAdminRoyaltyWithdrawals(),
-      ]);
-
-      setStats(statsRes.stats);
-      setReleases(relRes.releases);
-      setClients(cliRes.clients);
-      setEnquiries(enqRes.enquiries);
-      setCatalogueEntries(catRes.entries);
-      setRoyaltyWithdrawals(royaltyRes.withdrawals || []);
+      // Load each section independently: a slow endpoint should not keep the entire
+      // admin portal empty while all other requests have already completed.
+      const tasks = [
+        api.getAdminStats().then(r => setStats(r.stats)),
+        api.getReleases().then(r => setReleases(r.releases)),
+        api.getAdminClients().then(r => setClients(r.clients)),
+        api.getAdminEnquiries().then(r => setEnquiries(r.enquiries)),
+        api.getAdminCatalogue().then(r => setCatalogueEntries(r.entries)),
+        api.getAdminRoyaltyWithdrawals().then(r => setRoyaltyWithdrawals(r.withdrawals || [])),
+      ];
+      const results = await Promise.allSettled(tasks);
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed && results.every(r => r.status === 'rejected')) {
+        throw failed.reason;
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load administrative data.');
     } finally {
@@ -498,6 +499,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <div className="relative hidden md:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+              <input
+                type="search"
+                value={globalSearch}
+                onChange={e => setGlobalSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter' || !globalSearch.trim()) return;
+                  const q = globalSearch.trim().toLowerCase();
+                  if (clients.some(c => [c.name, c.email, c.artistName].some(v => String(v || '').toLowerCase().includes(q)))) setActiveTab('clients');
+                  else if (catalogueEntries.some(c => JSON.stringify(c).toLowerCase().includes(q))) setActiveTab('catalogue');
+                  else if (enquiries.some(c => JSON.stringify(c).toLowerCase().includes(q))) setActiveTab('enquiries');
+                  else { setActiveTab('releases'); setReleaseSearch(globalSearch.trim()); }
+                }}
+                placeholder="Search all admin data… (Enter)"
+                aria-label="Search across admin portal"
+                className="w-52 lg:w-64 bg-neutral-900 border border-neutral-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-red-600"
+              />
+            </div>
             <button
               onClick={onGoHome}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer"
@@ -731,14 +751,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* TAB: DATA BACKUP */}
         {activeTab === 'settings' && (
           <div className="max-w-3xl space-y-6">
-            <div><h3 className="text-base font-bold text-white font-['Space_Grotesk']">Data Backup</h3><p className="text-xs text-neutral-400">Protect the live catalogue before any deployment or structural change.</p></div>
+            <div><h3 className="text-base font-bold text-white font-['Space_Grotesk']">Data Backup</h3><p className="text-xs text-neutral-400">Recommended before publishing code changes. This is your emergency copy if a deployment damages catalogue data or uploaded files.</p></div>
             <div className="p-6 bg-neutral-900/60 border border-emerald-900/50 rounded-2xl space-y-4">
               <div className="flex gap-3"><Shield className="w-5 h-5 text-emerald-400 shrink-0" /><div><h4 className="text-sm font-bold text-white">Safe backup and restore</h4><p className="text-xs text-neutral-400 mt-1">Exports the database records plus uploaded artwork, masters and documents. Import is additive: existing IDs and files are never overwritten or deleted.</p></div></div>
               <div className="flex flex-wrap gap-3">
                 <button onClick={handleExportBackup} disabled={backupBusy} className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center gap-2"><Download className="w-4 h-4" /> Export Existing Data</button>
                 <label className="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer"><UploadCloud className="w-4 h-4" /> Import Existing Data<input type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" className="hidden" disabled={backupBusy} onChange={e => { const file = e.target.files?.[0]; if (file) handleImportBackup(file); e.currentTarget.value = ''; }} /></label>
               </div>
-              <div className="text-[11px] text-neutral-500 border-t border-neutral-800 pt-3">Do not delete the old backup after creating it. Keep at least one verified restore copy before republishing.</div>
+              <div className="text-[11px] text-neutral-500 border-t border-neutral-800 pt-3">How to use: click Export Existing Data and save the downloaded file somewhere safe (for example, your computer and a cloud drive). Only use Import Existing Data to restore a backup when needed. Keep at least one backup outside the website.</div>
             </div>
           </div>
         )}

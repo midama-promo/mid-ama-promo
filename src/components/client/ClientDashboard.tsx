@@ -75,9 +75,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
     try {
       if (showSpinner) setLoading(true);
       setError(null);
-      const [releaseRes, catalogueRes] = await Promise.all([api.getReleases(), api.getClientCatalogue()]);
-      setReleases(releaseRes.releases);
-      setCatalogueEntries(catalogueRes.entries);
+      // Show the main catalogue as soon as it is available instead of waiting
+      // for every request (including royalties) to finish.
+      const [releaseRes, catalogueRes] = await Promise.all([
+        api.getReleases().then(result => { setReleases(result.releases); return result; }),
+        api.getClientCatalogue().then(result => { setCatalogueEntries(result.entries); return result; }),
+      ]);
+      // Main dashboard data is ready; don't make clients wait for royalty requests
+      // before the release list becomes visible.
+      if (showSpinner) setLoading(false);
       if (!isAccountRestricted) {
         const royaltyRes = await api.getRoyaltySummary();
         setRoyaltySummary({ totalEarnings: royaltyRes.totalEarnings, pendingAmount: royaltyRes.pendingAmount, paidAmount: royaltyRes.paidAmount, availableAmount: royaltyRes.availableAmount });

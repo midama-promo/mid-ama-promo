@@ -868,17 +868,17 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       }
     }
 
-    // Strict 14-Day Release Rule
+    // Strict 7-Day Release Rule
     const parts = targetReleaseDate.split('-').map(Number);
     const selectedDate =
       parts.length === 3 ? new Date(parts[0], parts[1] - 1, parts[2]) : new Date(targetReleaseDate);
 
     const minDateObj = new Date();
     minDateObj.setHours(0, 0, 0, 0);
-    minDateObj.setDate(minDateObj.getDate() + 14);
+    minDateObj.setDate(minDateObj.getDate() + 7);
 
     if (!targetReleaseDate || isNaN(selectedDate.getTime()) || selectedDate < minDateObj) {
-      setSubmitError('Release date must be at least 14 days from today.');
+      setSubmitError('Release date must be at least 7 days from today.');
       return false;
     }
 
@@ -1576,7 +1576,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-neutral-100 focus:outline-none focus:border-red-600"
                       />
                       <span className="block text-[10px] text-neutral-500 mt-1 font-mono">
-                        At least 14 days in advance (Earliest: {minTargetDate})
+                        At least 7 days in advance (Earliest: {minTargetDate})
                       </span>
                     </div>
                   </div>
