@@ -1,12 +1,12 @@
-import { User, Release, Enquiry, NotificationLog, AdminStats, ReleaseStatus, WithdrawalRequest } from '../types';
+import { User, Release, Enquiry, NotificationLog, AdminStats, ReleaseStatus, WithdrawalRequest, ArtistCredit } from '../types';
 
 export interface PlanUsageResponse {
-  planId: 'free' | 'starter' | 'pro';
+  planId: 'free' | 'starter';
   planName: string;
   planExpiresAt: string | null;
   usage: { releasesThisMonth: number; artists: number };
   limits: { releasesPerMonth: number | null; artists: number | null };
-  prices: { starter: number; pro: number };
+  prices: { premium: number };
 }
 
 class ApiService {
@@ -91,7 +91,7 @@ class ApiService {
     return this.request<PlanUsageResponse>('/api/payments/plan');
   }
 
-  async initializePlanPayment(planId: 'starter' | 'pro'): Promise<{ authorizationUrl: string; reference: string; planId: string; amount: number }> {
+  async initializePlanPayment(planId: 'starter'): Promise<{ authorizationUrl: string; reference: string; planId: string; amount: number }> {
     return this.request('/api/payments/paystack/initialize', { method: 'POST', body: JSON.stringify({ planId }) });
   }
 
@@ -178,6 +178,10 @@ class ApiService {
       method: 'POST',
       body: formData,
     });
+  }
+
+  async getArtistLibrary(): Promise<{ artists: ArtistCredit[] }> {
+    return this.request('/api/artists');
   }
 
   // Releases
@@ -286,60 +290,30 @@ class ApiService {
     });
   }
 
-  // Securely trigger download with fresh signed URL and friendly error handling
+  // Securely trigger a same-origin download ticket, then let the browser navigate
+  // to it. The server redirects to a short-lived R2 URL with attachment headers.
+  // This avoids fetch/blob CORS failures when the object is hosted on Cloudflare R2.
   async downloadAsset(
     releaseId: string,
     assetType: 'artwork' | 'track' | 'document',
     assetId?: string,
-    fallbackFilename?: string
+    _fallbackFilename?: string
   ): Promise<void> {
     try {
       const ticket = await this.createSignedDownloadTicket(releaseId, assetType, assetId);
-      
-      const response = await fetch(ticket.downloadUrl);
-      if (!response.ok) {
-        let errMessage = "We couldn't download this file. Please try again.";
-        try {
-          const errData = await response.json();
-          if (response.status === 410 || errData.expired) {
-            errMessage = 'This download link has expired. Please click Download again to generate a fresh link.';
-          } else if (response.status === 404) {
-            errMessage = 'The requested file no longer exists on the server.';
-          } else if (response.status === 403 || response.status === 401) {
-            errMessage = "You don't have permission to access this file.";
-          } else if (errData.error) {
-            errMessage = errData.error;
-          }
-        } catch (_) {}
-        throw new Error(errMessage);
-      }
-
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const downloadName = ticket.filename || fallbackFilename || `${assetType}-midama`;
-      
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = downloadName;
-      document.body.appendChild(link);
-      link.click();
-
-      setTimeout(() => {
-        if (document.body.contains(link)) {
-          document.body.removeChild(link);
-        }
-        window.URL.revokeObjectURL(blobUrl);
-      }, 1000);
+      window.location.assign(new URL(ticket.downloadUrl, window.location.origin).toString());
     } catch (err: any) {
       console.error('Download failure:', err);
       if (err.message && (
-        err.message.includes("permission") ||
-        err.message.includes("expired") ||
-        err.message.includes("no longer exists")
+        err.message.includes('permission') ||
+        err.message.includes('expired') ||
+        err.message.includes('no longer exists') ||
+        err.message.includes('legacy') ||
+        err.message.includes('persistent storage')
       )) {
         throw err;
       }
-      throw new Error("We couldn't download this file. Please try again.");
+      throw new Error(err?.message || "We couldn't download this file. Please try again.");
     }
   }
 

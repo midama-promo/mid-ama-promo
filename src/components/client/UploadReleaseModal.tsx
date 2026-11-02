@@ -186,19 +186,14 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [primaryArtistsList, setPrimaryArtistsList] = useState<ArtistFormItem[]>([
     { id: 'pa_1', name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
   ]);
-  const [rememberedPrimaryArtists, setRememberedPrimaryArtists] = useState<string[]>([]);
+  const [artistLibrary, setArtistLibrary] = useState<ArtistCredit[]>([]);
   useEffect(() => {
-    try { const saved = JSON.parse(localStorage.getItem('midama-primary-artists-v1') || '[]'); setRememberedPrimaryArtists(Array.isArray(saved) ? saved.filter((v): v is string => typeof v === 'string' && v.trim()) : []); } catch { setRememberedPrimaryArtists([]); }
-  }, []);
-  useEffect(() => {
-    const ownName = (user?.name || '').trim().toLocaleLowerCase();
-    const names = primaryArtistsList.map(a => (a?.name || '').trim()).filter(n => n && n.toLocaleLowerCase() !== ownName);
-    if (!names.length) return;
-    const merged = Array.from(new Set([...rememberedPrimaryArtists, ...names]));
-    if (merged.length !== rememberedPrimaryArtists.length || merged.some((n, i) => n !== rememberedPrimaryArtists[i])) {
-      setRememberedPrimaryArtists(merged); try { localStorage.setItem('midama-primary-artists-v1', JSON.stringify(merged)); } catch {}
-    }
-  }, [primaryArtistsList, user?.name]);
+    if (!isOpen || !user?.id) return;
+    let cancelled = false;
+    api.getArtistLibrary().then(({ artists }) => { if (!cancelled) setArtistLibrary(Array.isArray(artists) ? artists : []); })
+      .catch((error) => console.warn('Could not load saved artist library:', error));
+    return () => { cancelled = true; };
+  }, [isOpen, user?.id]);
   const [featuredArtistsList, setFeaturedArtistsList] = useState<ArtistFormItem[]>([]);
   const [genre, setGenre] = useState('Amapiano');
   const [subGenre, setSubGenre] = useState('');
@@ -497,10 +492,28 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     ]);
   };
 
+  const findSavedArtist = (name: string) => artistLibrary.find((artist) => artist.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
+
   const handleUpdatePrimaryArtist = (idx: number, field: keyof ArtistFormItem, val: any) => {
     const copy = [...primaryArtistsList];
     copy[idx] = { ...copy[idx], [field]: val };
+    if (field === 'name' && typeof val === 'string') {
+      const saved = findSavedArtist(val);
+      if (saved) copy[idx] = { ...copy[idx], name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested };
+      else if (primaryArtistsList[idx].name !== val) copy[idx] = { ...copy[idx], spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false };
+    }
     setPrimaryArtistsList(copy);
+  };
+
+  const selectSavedPrimaryArtist = (saved: ArtistCredit) => {
+    const emptyIndex = primaryArtistsList.findIndex((artist) => !artist.name.trim());
+    if (emptyIndex >= 0) {
+      const copy = [...primaryArtistsList];
+      copy[emptyIndex] = { ...copy[emptyIndex], name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested };
+      setPrimaryArtistsList(copy);
+    } else {
+      setPrimaryArtistsList(current => [...current, { id: `pa_${Date.now()}`, name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested }]);
+    }
   };
 
   const handleRemovePrimaryArtist = (idx: number) => {
@@ -538,7 +551,13 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   ) => {
     const copy = [...tracks];
     const cur = getTrackPrimaryArtists(copy[trackIdx]);
+    const previousName = cur[artistIdx]?.name || '';
     cur[artistIdx] = { ...cur[artistIdx], [field]: val };
+    if (field === 'name' && typeof val === 'string') {
+      const saved = findSavedArtist(val);
+      if (saved) cur[artistIdx] = { ...cur[artistIdx], name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested };
+      else if (previousName !== val) cur[artistIdx] = { ...cur[artistIdx], spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false };
+    }
     copy[trackIdx].primaryArtists = cur;
     if (artistIdx === 0) {
       copy[trackIdx].primaryArtist = cur[0].name;
@@ -574,12 +593,29 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const handleUpdateFeaturedArtist = (idx: number, field: keyof ArtistFormItem, val: any) => {
     const copy = [...featuredArtistsList];
     copy[idx] = { ...copy[idx], [field]: val };
+    if (field === 'name' && typeof val === 'string') {
+      const saved = findSavedArtist(val);
+      if (saved) copy[idx] = { ...copy[idx], name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested };
+      else if (featuredArtistsList[idx].name !== val) copy[idx] = { ...copy[idx], spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false };
+    }
     setFeaturedArtistsList(copy);
   };
 
   const handleRemoveFeaturedArtist = (idx: number) => {
     setFeaturedArtistsList(featuredArtistsList.filter((_, i) => i !== idx));
   };
+
+  const selectSavedFeaturedArtist = (saved: ArtistCredit) => {
+    setFeaturedArtistsList(current => [...current, {
+      id: `fa_${Date.now()}_${current.length}`,
+      name: saved.name,
+      spotifyProfileUrl: saved.spotifyProfileUrl || '',
+      appleMusicProfileUrl: saved.appleMusicProfileUrl || '',
+      spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested,
+    }]);
+  };
+
 
   // Track featured artist handlers
   const handleAddTrackFeaturedArtist = (trackIdx: number) => {
@@ -600,7 +636,13 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   ) => {
     const copy = [...tracks];
     const cur = [...(copy[trackIdx].featuredArtists || [])];
+    const previousName = cur[faIdx]?.name || '';
     cur[faIdx] = { ...cur[faIdx], [field]: val };
+    if (field === 'name') {
+      const saved = findSavedArtist(val);
+      if (saved) cur[faIdx] = { ...cur[faIdx], name: saved.name, spotifyProfileUrl: saved.spotifyProfileUrl || '', appleMusicProfileUrl: saved.appleMusicProfileUrl || '', spotifyProfileCreateRequested: !!saved.spotifyProfileCreateRequested, appleMusicProfileCreateRequested: !!saved.appleMusicProfileCreateRequested };
+      else if (previousName !== val) cur[faIdx] = { ...cur[faIdx], spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false };
+    }
     copy[trackIdx].featuredArtists = cur;
     setTracks(copy);
   };
@@ -1359,8 +1401,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                     </div>
 
                     <datalist id="midama-saved-primary-artists">
-                      {rememberedPrimaryArtists.filter(name => name.toLocaleLowerCase() !== (user?.name || '').trim().toLocaleLowerCase()).map(name => <option key={name} value={name} />)}
+                      {artistLibrary.filter(artist => artist.name.toLocaleLowerCase() !== (user?.name || '').trim().toLocaleLowerCase()).map(artist => <option key={artist.id || artist.name} value={artist.name} />)}
                     </datalist>
+                    {artistLibrary.length > 0 && <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-3 space-y-2">
+                      <p className="text-[10px] uppercase tracking-widest font-bold text-neutral-500">Your saved artists — click to add</p>
+                      <div className="flex flex-wrap gap-2">{artistLibrary.map(saved => <button key={saved.id || saved.name} type="button" onClick={() => selectSavedPrimaryArtist(saved)} title={`Spotify: ${saved.spotifyProfileUrl || (saved.spotifyProfileCreateRequested ? 'Creation requested' : 'Not added')} | Apple Music: ${saved.appleMusicProfileUrl || (saved.appleMusicProfileCreateRequested ? 'Creation requested' : 'Not added')}`} className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-[11px] font-semibold text-neutral-200 hover:border-red-600 hover:text-white">{saved.name}</button>)}</div>
+                    </div>}
                     {primaryArtistsList.map((artist, idx) => (
                       <div
                         key={artist.id}
@@ -1450,6 +1496,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                       </button>
                     </div>
 
+                    <datalist id="midama-saved-featured-artists">
+                      {artistLibrary.map(artist => <option key={artist.id || artist.name} value={artist.name} />)}
+                    </datalist>
+                    {artistLibrary.length > 0 && <div className="flex flex-wrap gap-2">
+                      {artistLibrary.map(saved => <button key={`featured-${saved.id || saved.name}`} type="button" onClick={() => selectSavedFeaturedArtist(saved)} title={`Add ${saved.name} as a featured artist`} className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] font-semibold text-neutral-400 hover:border-red-600 hover:text-white">+ {saved.name}</button>)}
+                    </div>}
                     {featuredArtistsList.length > 0 && (
                       <div className="space-y-3">
                         {featuredArtistsList.map((artist, idx) => (
@@ -1481,6 +1533,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 value={artist.name}
                                 onChange={(e) => handleUpdateFeaturedArtist(idx, 'name', e.target.value)}
                                 placeholder="Enter featured artist name"
+                                list="midama-saved-featured-artists"
                                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600"
                               />
                             </div>
@@ -1949,7 +2002,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                <div key={`primary-${paIdx}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-neutral-900/50 p-2 rounded-lg border border-neutral-800/60">
                                  <div className="sm:col-span-4">
                                    <label className="block text-[10px] font-mono text-neutral-400 mb-1">Primary Artist {paIdx + 1} {releaseType === 'EP' || releaseType === 'Album' ? '*' : ''}</label>
-                                   <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
+                                   <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" list="midama-saved-primary-artists" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
                                  </div>
                                  <div className="sm:col-span-3">
                                    <ArtistProfileField platform="spotify" compact url={pa.spotifyProfileUrl || ''} createRequested={pa.spotifyProfileCreateRequested} onUrlChange={(value) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileUrl', value)} onCreateRequested={() => { const copy = [...tracks]; const cur = getTrackPrimaryArtists(copy[idx]); cur[paIdx] = { ...cur[paIdx], spotifyProfileUrl: '', spotifyProfileCreateRequested: true }; copy[idx].primaryArtists = cur; setTracks(copy); }} onUseExisting={() => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileCreateRequested', false)} />
@@ -1988,6 +2041,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                         )
                                       }
                                       placeholder="Featured artist name"
+                                      list="midama-saved-featured-artists"
                                       className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
                                     />
                                   </div>

@@ -1,12 +1,11 @@
 import React from 'react';
-import { Check, Crown, Music2, Sparkles } from 'lucide-react';
+import { Check, Music2, Sparkles } from 'lucide-react';
 
 interface PricingPlansProps { onChoosePlan: () => void; }
 
 const plans = [
   { name: 'Free', price: 'R0', subtitle: 'For new independent artists', icon: Music2, popular: false, features: ['50 release submissions per month', 'Artist receives 80% of applicable royalties', 'Mid-Ama Promo receives 20% of applicable royalties', 'Artist owns 100% of the master recording', 'Up to 50 artist profiles', 'Private client dashboard and release tracking'] },
-  { name: 'Starter', price: 'R99', subtitle: 'For independent artists', icon: Sparkles, popular: true, features: ['Unlimited release submissions', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Unlimited artist profiles', 'Priority processing and metadata support'] },
-  { name: 'Pro', price: 'R449', subtitle: 'For high-volume independent artists', icon: Crown, popular: false, features: ['Unlimited release submissions', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Unlimited artist profiles', 'Priority support and advanced catalogue tools'] },
+  { name: 'Premium', price: 'R99', subtitle: 'For independent artists', icon: Sparkles, popular: true, features: ['Unlimited release submissions', 'Artist receives 100% of applicable royalties', 'Artist owns 100% of the master recording', 'Unlimited artist profiles', 'Priority processing and metadata support'] },
 ];
 
 export const PricingPlans: React.FC<PricingPlansProps> = ({ onChoosePlan }) => (
@@ -17,7 +16,7 @@ export const PricingPlans: React.FC<PricingPlansProps> = ({ onChoosePlan }) => (
         <h2 className="text-3xl sm:text-4xl font-black text-white mt-3">Your music. Your catalogue. Your plan.</h2>
         <p className="text-sm sm:text-base text-neutral-400 mt-4">Affordable tools and hands-on release submission support for independent artists.</p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {plans.map((plan) => {
           const Icon = plan.icon;
           return <article key={plan.name} className={`rounded-2xl border ${plan.popular ? 'border-red-600 shadow-xl shadow-red-950/20' : 'border-neutral-800'} bg-neutral-900/70 p-6 flex flex-col`}>
@@ -30,7 +29,7 @@ export const PricingPlans: React.FC<PricingPlansProps> = ({ onChoosePlan }) => (
           </article>;
         })}
       </div>
-      <p className="text-center text-sm font-semibold text-amber-300 mt-6">Starter and Pro subscriptions are coming soon while Paystack completes business verification. Paid-plan checkout is temporarily unavailable. Free accounts remain available.</p>
+      <p className="text-center text-sm font-semibold text-amber-300 mt-6">Premium subscriptions are coming soon while Paystack completes business verification. Paid-plan checkout is temporarily unavailable. Free accounts remain available.</p>
       <p className="text-center text-xs text-neutral-500 mt-2">When paid plans launch, each successful payment will provide 30 days of access and manual renewal will be required. Distribution acceptance and release dates remain subject to review and platform requirements.</p>
     </div>
   </section>

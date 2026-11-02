@@ -11,11 +11,11 @@ export const Policies: React.FC = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <article className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/40">
           <h3 className="font-bold text-white">Royalty split</h3>
-          <p className="mt-2 text-sm text-neutral-400">Free: 80% of applicable royalties to the artist/client and 20% to Mid-Ama Promo. Starter and Pro: 100% of applicable royalties to the artist/client and 0% to Mid-Ama Promo. These royalty shares are separate from master ownership.</p>
+          <p className="mt-2 text-sm text-neutral-400">Free: 80% of applicable royalties to the artist/client and 20% to Mid-Ama Promo. Premium: 100% of applicable royalties to the artist/client and 0% to Mid-Ama Promo. These royalty shares are separate from master ownership.</p>
         </article>
         <article className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/40">
           <h3 className="font-bold text-white">Master ownership</h3>
-          <p className="mt-2 text-sm text-neutral-400">Free, Starter, and Pro: 100% of the master recording is owned by the artist/client. Publishing rights are not included in this master-ownership split. The applicable release agreement should record the agreed ownership terms.</p>
+          <p className="mt-2 text-sm text-neutral-400">Free and Premium: 100% of the master recording is owned by the artist/client. Publishing rights are not included in this master-ownership split. The applicable release agreement should record the agreed ownership terms.</p>
         </article>
         <article className="p-5 rounded-2xl border border-neutral-800 bg-neutral-900/40">
           <h3 className="font-bold text-white">Takedowns</h3>

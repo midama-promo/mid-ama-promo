@@ -80,7 +80,7 @@ export const AmapianoFocus: React.FC = () => {
                 Artist Master Ownership
               </h3>
               <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
-                Master ownership: Free, Starter, and Pro plans provide 100% artist ownership. Publishing rights are separate from master ownership.
+                Master ownership: Free and Premium plans provide 100% artist ownership. Publishing rights are separate from master ownership.
               </p>
             </div>
             <div className="mt-6 pt-4 border-t border-neutral-800/80 text-xs font-mono text-neutral-500 flex items-center gap-2">

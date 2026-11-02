@@ -174,7 +174,7 @@ export function remoteUploadFile(localPath: string, objectPath: string, contentT
   requestSync(url.toString(), { method: 'PUT', headers, body: data });
 }
 
-export function remoteSignedUrl(objectPath: string, expiresInSeconds = 300): string {
+export function remoteSignedUrl(objectPath: string, expiresInSeconds = 300, downloadFilename?: string): string {
   if (!remoteStorageConfigured) throw new Error('Cloudflare R2 is not configured.');
   const url = r2ObjectUrl(objectPath);
   const now = new Date();
@@ -188,6 +188,10 @@ export function remoteSignedUrl(objectPath: string, expiresInSeconds = 300): str
     'X-Amz-Expires': String(Math.max(1, Math.min(604800, expiresInSeconds))),
     'X-Amz-SignedHeaders': 'host',
   };
+  if (downloadFilename) {
+    const safeAsciiName = downloadFilename.replace(/[^\x20-\x7E]/g, '_').replace(/[\"\\\r\n]/g, '_');
+    params['response-content-disposition'] = `attachment; filename=\"${safeAsciiName}\"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`;
+  }
   const canonicalQuery = Object.keys(params).sort().map(k => `${awsEncode(k)}=${awsEncode(params[k])}`).join('&');
   const canonicalRequest = ['GET', url.pathname, canonicalQuery, `host:${url.host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256(canonicalRequest)].join('\n');
@@ -214,9 +218,9 @@ export function remoteEnsureBucket(): void {
 
 export function remoteObjectPathFromStoredName(storedName: string): string { return storedName.replace(/^(?:remote:|r2:)/, ''); }
 export function isR2StoredName(storedName: string): boolean { return storedName.startsWith('r2:'); }
-export function remoteSignedUrlForStoredName(storedName: string, expiresInSeconds = 300): string {
+export function remoteSignedUrlForStoredName(storedName: string, expiresInSeconds = 300, downloadFilename?: string): string {
   if (!isR2StoredName(storedName)) throw new Error('This is a legacy non-R2 asset. It must be separately migrated to Cloudflare R2 before it can be downloaded from this portal.');
-  return remoteSignedUrl(remoteObjectPathFromStoredName(storedName), expiresInSeconds);
+  return remoteSignedUrl(remoteObjectPathFromStoredName(storedName), expiresInSeconds, downloadFilename);
 }
 export function encodeRemoteAssetPath(objectPath: string): string { return Buffer.from(objectPath, 'utf8').toString('base64url'); }
 export function decodeRemoteAssetPath(encoded: string): string { return Buffer.from(encoded, 'base64url').toString('utf8'); }

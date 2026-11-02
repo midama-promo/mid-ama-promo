@@ -57,7 +57,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const { user, logout, accessClientAccount } = useAuth();
   const [accessingClientId, setAccessingClientId] = useState<string | null>(null);
-  const [planDrafts, setPlanDrafts] = useState<Record<string, 'free' | 'starter' | 'pro'>>({});
+  const [planDrafts, setPlanDrafts] = useState<Record<string, 'free' | 'starter'>>({});
   const [savingPlanClientId, setSavingPlanClientId] = useState<string | null>(null);
   
   const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'royalties' | 'settings'>('releases');
@@ -978,11 +978,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {([{ id: 'free', title: 'Free accounts', tone: 'text-neutral-200' }, { id: 'starter', title: 'Starter accounts', tone: 'text-rose-300' }, { id: 'pro', title: 'Pro accounts', tone: 'text-violet-300' }] as const).map(item => {
+              {([{ id: 'free', title: 'Free accounts', tone: 'text-neutral-200' }, { id: 'starter', title: 'Premium accounts', tone: 'text-rose-300' }] as const).map(item => {
                 const count = clients.filter(c => {
                   const plan = c.planId || 'free';
                   const expired = plan !== 'free' && (!c.planExpiresAt || new Date(c.planExpiresAt).getTime() <= Date.now());
-                  return (expired ? 'free' : plan) === item.id;
+                  return (expired ? 'free' : (plan === 'pro' ? 'starter' : plan)) === item.id;
                 }).length;
                 return <div key={item.id} className="rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3"><p className="text-[10px] uppercase tracking-widest text-neutral-500">{item.title}</p><p className={`mt-1 text-2xl font-black ${item.tone}`}>{count}</p></div>;
               })}
@@ -1055,12 +1055,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                           <td className="py-3.5 px-4 min-w-[210px]">
                             <div className="flex flex-col gap-2">
-                              <span className={`inline-flex w-fit items-center rounded-full border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${((c.planId || 'free') === 'pro' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() > Date.now()) ? 'border-violet-500/50 bg-violet-500/10 text-violet-200' : ((c.planId || 'free') === 'starter' && (!c.planExpiresAt || new Date(c.planExpiresAt).getTime() > Date.now())) ? 'border-rose-500/50 bg-rose-500/10 text-rose-200' : 'border-neutral-700 bg-neutral-800 text-neutral-300'}`}>
-                                {(c.planId || 'free') === 'free' || (c.planId !== 'free' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() <= Date.now()) ? 'Free' : (c.planId || 'free').toUpperCase()}
+                              <span className={`inline-flex w-fit items-center rounded-full border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${((c.planId || 'free') !== 'free' && c.planExpiresAt && new Date(c.planExpiresAt).getTime() > Date.now()) ? 'border-rose-500/50 bg-rose-500/10 text-rose-200' : 'border-neutral-700 bg-neutral-800 text-neutral-300'}`}>
+                                {(c.planId || 'free') === 'free' || !c.planExpiresAt || new Date(c.planExpiresAt).getTime() <= Date.now() ? 'Free' : 'Premium'}
                               </span>
                               <div className="flex items-center gap-1.5">
-                                <select aria-label={`Set plan for ${c.name}`} value={planDrafts[c.id] || c.planId || 'free'} onChange={e => setPlanDrafts(prev => ({ ...prev, [c.id]: e.target.value as 'free' | 'starter' | 'pro' }))} className="min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[11px] text-white">
-                                  <option value="free">Free</option><option value="starter">Starter</option><option value="pro">Pro</option>
+                                <select aria-label={`Set plan for ${c.name}`} value={planDrafts[c.id] || (c.planId === 'pro' ? 'starter' : c.planId || 'free')} onChange={e => setPlanDrafts(prev => ({ ...prev, [c.id]: e.target.value as 'free' | 'starter' }))} className="min-w-0 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[11px] text-white">
+                                  <option value="free">Free</option><option value="starter">Premium</option>
                                 </select>
                                 <button type="button" onClick={() => void handleChangeClientPlan(c)} disabled={savingPlanClientId === c.id} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-violet-500 disabled:opacity-50">{savingPlanClientId === c.id ? 'Saving…' : 'Set'}</button>
                               </div>

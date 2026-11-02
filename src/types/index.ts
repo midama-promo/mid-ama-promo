@@ -23,6 +23,7 @@ export interface User {
   spotifyProfileClaimed?: boolean;
   spotifyProfileClaimedAt?: string | null;
   planId?: 'free' | 'starter' | 'pro';
+  artistLibrary?: ArtistCredit[];
   planExpiresAt?: string | null;
   planActivatedAt?: string | null;
 }

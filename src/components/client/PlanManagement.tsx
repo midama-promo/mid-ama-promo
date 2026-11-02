@@ -1,19 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, CreditCard, Crown, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import { Check, CreditCard, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, PlanUsageResponse } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 const planCards = [
   { id: 'free' as const, name: 'Free', price: 0, artists: 'Up to 50 artist profiles', releases: '50 releases / month', accent: 'neutral', features: ['Client dashboard and release tracking', 'Upload audio, artwork and metadata', '80% artist / 20% Mid-Ama Promo royalty split', '100% artist master ownership', 'Manual submission review'] },
-  { id: 'starter' as const, name: 'Starter', price: 99, artists: 'Unlimited artist profiles', releases: 'Unlimited releases', accent: 'red', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority processing for complete submissions', 'Release corrections and metadata support'] },
-  { id: 'pro' as const, name: 'Pro', price: 449, artists: 'Unlimited artist profiles', releases: 'Unlimited releases', accent: 'purple', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority support and processing', 'Advanced artist catalogue tools'] },
+  { id: 'starter' as const, name: 'Premium', price: 99, artists: 'Unlimited artist profiles', releases: 'Unlimited releases', accent: 'red', features: ['100% of applicable royalties to artist', '100% artist master ownership', 'Priority processing for complete submissions', 'Release corrections and metadata support'] },
 ];
 
 export const PlanManagement: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const [plan, setPlan] = useState<PlanUsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkoutPlan, setCheckoutPlan] = useState<'starter' | 'pro' | null>(null);
+  const [checkoutPlan, setCheckoutPlan] = useState<'starter' | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const handledReference = useRef<string | null>(null);
@@ -48,7 +47,7 @@ export const PlanManagement: React.FC = () => {
     });
   }, [user?.id, refreshUser, loadPlan]);
 
-  const startCheckout = async (id: 'starter' | 'pro') => {
+  const startCheckout = async (id: 'starter') => {
     setCheckoutPlan(id); setError(''); setNotice('');
     try {
       const result = await api.initializePlanPayment(id);
@@ -69,7 +68,7 @@ export const PlanManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-red-400"><CreditCard className="w-4 h-4" /> Plans & billing</div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-2">Choose the plan that fits your catalogue</h2>
-          <p className="text-sm text-neutral-400 mt-1">Starter and Pro checkout are temporarily unavailable while Paystack reviews the business account. Paid plans will be enabled after approval.</p>
+          <p className="text-sm text-neutral-400 mt-1">Premium checkout is temporarily unavailable while Paystack reviews the business account. Paid plans will be enabled after approval.</p>
         </div>
         {plan && <div className="shrink-0 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 min-w-36">
           <p className="text-[10px] uppercase tracking-widest text-neutral-500">Current plan</p>
@@ -92,12 +91,12 @@ export const PlanManagement: React.FC = () => {
         </div>
       </div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {planCards.map((card) => {
           const isCurrent = plan?.planId === card.id;
-          const accent = card.accent === 'red' ? 'border-red-700/70 shadow-red-950/20' : card.accent === 'purple' ? 'border-purple-700/70 shadow-purple-950/20' : 'border-neutral-800';
+          const accent = card.accent === 'red' ? 'border-red-700/70 shadow-red-950/20' : 'border-neutral-800';
           return <article key={card.id} className={`rounded-2xl border ${accent} bg-neutral-900/80 p-5 flex flex-col gap-4 ${card.id === 'starter' ? 'shadow-xl' : ''}`}>
-            <div className="flex items-center justify-between gap-2"><h3 className="text-lg font-extrabold text-white">{card.name}</h3>{card.id === 'pro' ? <Crown className="w-5 h-5 text-purple-300" /> : card.id === 'starter' ? <Sparkles className="w-5 h-5 text-red-300" /> : <ShieldCheck className="w-5 h-5 text-neutral-400" />}</div>
+            <div className="flex items-center justify-between gap-2"><h3 className="text-lg font-extrabold text-white">{card.name}</h3>{card.id === 'starter' ? <Sparkles className="w-5 h-5 text-red-300" /> : <ShieldCheck className="w-5 h-5 text-neutral-400" />}</div>
             <div><span className="text-3xl font-black text-white">R{card.price}</span><span className="text-sm text-neutral-500"> / month</span></div>
             <div className="space-y-2 text-sm text-neutral-200"><p className="font-semibold">{card.releases}</p><p>{card.artists}</p></div>
             <ul className="space-y-2 flex-1">{card.features.map((feature) => <li key={feature} className="flex gap-2 text-xs leading-relaxed text-neutral-300"><Check className="w-4 h-4 text-emerald-400 shrink-0" />{feature}</li>)}</ul>

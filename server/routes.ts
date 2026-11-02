@@ -214,13 +214,13 @@ function adminOnly(req: AuthenticatedRequest, res: Response, next: NextFunction)
 
 const PLAN_CONFIG = {
   free: { id: 'free' as const, name: 'Free', amountZar: 0, amountKobo: 0, monthlyReleaseLimit: 50, artistLimit: 50 },
-  starter: { id: 'starter' as const, name: 'Starter', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
-  pro: { id: 'pro' as const, name: 'Pro', amountZar: 449, amountKobo: 44900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
+  starter: { id: 'starter' as const, name: 'Premium', amountZar: 99, amountKobo: 9900, monthlyReleaseLimit: null as number | null, artistLimit: null as number | null },
 };
-type PaidPlanId = 'starter' | 'pro';
+type PaidPlanId = 'starter';
 
-function effectivePlanId(user: User): 'free' | 'starter' | 'pro' {
-  const plan = user.planId || 'free';
+function effectivePlanId(user: User): 'free' | 'starter' {
+  const storedPlan = user.planId || 'free';
+  const plan = storedPlan === 'pro' ? 'starter' : storedPlan;
   if (plan === 'free') return 'free';
   if (!user.planExpiresAt || new Date(user.planExpiresAt).getTime() <= Date.now()) return 'free';
   return plan;
@@ -255,7 +255,7 @@ function planUsage(user: User) {
     planExpiresAt: planId === 'free' ? null : user.planExpiresAt || null,
     usage: { releasesThisMonth: monthlyReleases.length, artists: artistNames.size },
     limits: { releasesPerMonth: plan.monthlyReleaseLimit, artists: plan.artistLimit },
-    prices: { starter: PLAN_CONFIG.starter.amountZar, pro: PLAN_CONFIG.pro.amountZar },
+    prices: { premium: PLAN_CONFIG.starter.amountZar },
   };
 }
 
@@ -315,7 +315,7 @@ apiRouter.post('/payments/paystack/initialize', authMiddleware, activeClientOnly
   const user = req.user!;
   if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can purchase a plan.' });
   const planId = String(req.body?.planId || '') as PaidPlanId;
-  if (planId !== 'starter' && planId !== 'pro') return res.status(400).json({ error: 'Choose a valid paid plan.' });
+  if (planId !== 'starter') return res.status(400).json({ error: 'Choose the Premium plan.' });
   if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Paystack is not configured yet. Add PAYSTACK_SECRET_KEY to the server environment before accepting payments.' });
   try {
     const plan = PLAN_CONFIG[planId];
@@ -756,7 +756,7 @@ ${(release.statusHistory || []).map(h => `[${h.timestamp}] Status changed to ${h
 
 ================================================================================
 CONFIDENTIAL NOTICE: This document contains proprietary metadata submitted to MID-AMA PROMO™.
-Master ownership: Free, Starter, and Pro plans are 100% artist-owned. Publishing rights are separate.
+Master ownership: Free and Premium plans are 100% artist-owned. Publishing rights are separate.
 ================================================================================
 `;
 
@@ -904,7 +904,7 @@ apiRouter.get('/downloads/:token', (req: Request, res: Response) => {
       return res.status(404).json({ error: 'The requested remote asset is not configured.' });
     }
     try {
-      return res.redirect(remoteSignedUrlForStoredName(payload.filePath, 120));
+      return res.redirect(remoteSignedUrlForStoredName(payload.filePath, 120, payload.filename));
     } catch (error: any) {
       return res.status(404).json({ error: `The requested file could not be retrieved from persistent storage: ${error?.message || 'storage error'}` });
     }
@@ -943,7 +943,7 @@ apiRouter.get('/releases/:id/download-artwork', (req: Request, res: Response) =>
     }
 
     const filename = release.storedArtworkFilename || path.basename(release.artworkUrl);
-    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300));
+    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300, release.artworkFilename || `${release.refNumber}-cover.jpg`));
     const filePath = path.join(ARTWORK_DIR, filename);
 
     if (fs.existsSync(filePath)) {
@@ -971,7 +971,7 @@ apiRouter.get('/releases/:id/download-track/:trackId', (req: Request, res: Respo
     if (!track) return res.status(404).json({ error: 'Track not found in this release.' });
 
     const filename = track.storedFilename || path.basename(track.fileUrl);
-    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300));
+    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300, track.filename || `${release.refNumber}-${track.trackNumber}-${track.title}.mp3`));
     const filePath = path.join(AUDIO_DIR, filename);
 
     if (fs.existsSync(filePath)) {
@@ -1035,6 +1035,15 @@ apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // RELEASES API
 // ----------------------------------------------------
+
+// ----------------------------------------------------
+// CLIENT ARTIST LIBRARY — private to the authenticated client
+// ----------------------------------------------------
+apiRouter.get('/artists', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user!.role !== 'client') return res.status(403).json({ error: 'This endpoint is for client accounts.' });
+  const artists = Array.isArray(req.user!.artistLibrary) ? req.user!.artistLibrary : [];
+  return res.json({ artists });
+});
 
 apiRouter.get('/releases', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
@@ -1310,6 +1319,37 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   };
 
   const saved = db.createRelease(newRelease);
+
+  // Save artists from this new submission to this client's private Neon-backed account library.
+  // Merge by case-insensitive name and preserve previously supplied profile links / creation requests.
+  const submissionArtists: any[] = [
+    ...(newRelease.primaryArtistProfiles || []),
+    ...(newRelease.featuredArtistProfiles || []),
+    ...(newRelease.artistProfiles || []),
+    ...newRelease.tracks.flatMap(track => track.artistProfiles || []),
+    ...newRelease.tracks.flatMap(track => [
+      ...(track.primaryArtist ? [{ name: track.primaryArtist, role: 'primary' }] : []),
+      ...(track.featuredArtists || []).map(name => ({ name, role: 'featured' })),
+    ]),
+  ];
+  const artistMap = new Map<string, any>();
+  for (const artist of [...(user.artistLibrary || []), ...submissionArtists]) {
+    const name = String(artist?.name || '').trim();
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    const previous = artistMap.get(key) || {};
+    artistMap.set(key, {
+      ...previous,
+      ...artist,
+      id: previous.id || artist.id || `artist_${crypto.randomUUID()}`,
+      name: previous.name || name,
+      spotifyProfileUrl: artist.spotifyProfileCreateRequested ? undefined : (artist.spotifyProfileUrl || previous.spotifyProfileUrl || undefined),
+      appleMusicProfileUrl: artist.appleMusicProfileCreateRequested ? undefined : (artist.appleMusicProfileUrl || previous.appleMusicProfileUrl || undefined),
+      spotifyProfileCreateRequested: artist.spotifyProfileCreateRequested ? true : artist.spotifyProfileUrl ? false : !!previous.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: artist.appleMusicProfileCreateRequested ? true : artist.appleMusicProfileUrl ? false : !!previous.appleMusicProfileCreateRequested,
+    });
+  }
+  db.updateUser(user.id, { artistLibrary: Array.from(artistMap.values()) });
 
   // Send complete submission details to midnightamapiano@yahoo.com
   const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -1887,8 +1927,8 @@ apiRouter.patch('/admin/clients/:id', authMiddleware, adminOnly, (req: Authentic
   if (realSurname !== undefined) updates.realSurname = typeof realSurname === 'string' ? realSurname.trim() : '';
   if (phone !== undefined) updates.phone = phone.trim();
   if (planId !== undefined) {
-    if (!['free', 'starter', 'pro'].includes(planId)) {
-      return res.status(400).json({ error: 'Choose Free, Starter, or Pro.' });
+    if (!['free', 'starter'].includes(planId)) {
+      return res.status(400).json({ error: 'Choose Free or Premium.' });
     }
     updates.planId = planId;
     if (planId === 'free') {

@@ -33,7 +33,8 @@ export interface User {
   phone?: string;
   country?: string;
   lastLoginAt?: string;
-  planId?: 'free' | 'starter' | 'pro';
+  planId?: 'free' | 'starter' | 'pro'; // 'pro' retained only for legacy records; treated as Premium
+  artistLibrary?: ArtistCredit[];
   planExpiresAt?: string | null;
   lastPaymentReference?: string;
   planActivatedAt?: string | null;
