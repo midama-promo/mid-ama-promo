@@ -192,7 +192,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   }, []);
   useEffect(() => {
     const ownName = (user?.name || '').trim().toLocaleLowerCase();
-    const names = primaryArtistsList.map(a => (a?.name || '').trim()).filter(n => n && n.toLocaleLowerCase() !== ownName);
+    const names = primaryArtistsList.map(a => (a?.name || '').trim()).filter(n => Boolean(n) && n.toLocaleLowerCase() !== ownName);
     if (!names.length) return;
     const merged = Array.from(new Set([...rememberedPrimaryArtists, ...names]));
     if (merged.length !== rememberedPrimaryArtists.length || merged.some((n, i) => n !== rememberedPrimaryArtists[i])) {
@@ -567,7 +567,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const handleAddFeaturedArtist = () => {
     setFeaturedArtistsList([
       ...featuredArtistsList,
-      { id: `fa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileCreateRequested: false, spotifyProfileCreateRequested: false },
+      { id: `fa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', appleMusicProfileCreateRequested: false, spotifyProfileCreateRequested: false },
     ]);
   };
 
