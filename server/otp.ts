@@ -1,95 +1,48 @@
 import 'dotenv/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import crypto from 'node:crypto';
+import { remoteStoreOtp, remoteConsumeOtp, remoteDeleteOtp } from './remote.ts';
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
-// On the server, prefer anon key if configured, or use service role key server-side.
-// The service role key is NEVER sent to or shared with the client.
-const SERVER_AUTH_KEY = SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const OTP_SECRET = process.env.OTP_HASH_SECRET || process.env.MID_AMA_SESSION_SECRET || '';
+const OTP_TTL_MS = 10 * 60 * 1000;
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || '';
 
-export function isSupabaseConfigured(): boolean {
-  return Boolean(SUPABASE_URL && SERVER_AUTH_KEY);
+function hashCode(email: string, code: string): string {
+  if (!OTP_SECRET) throw new Error('OTP_HASH_SECRET or MID_AMA_SESSION_SECRET must be configured.');
+  return crypto.createHmac('sha256', OTP_SECRET).update(`${email}:${code}`).digest('hex');
 }
 
-let serverClient: SupabaseClient | null = null;
-
-function getServerClient(): SupabaseClient {
-  if (!SUPABASE_URL || !SERVER_AUTH_KEY) {
-    throw new Error('Supabase email OTP is not configured.');
-  }
-  if (!serverClient) {
-    serverClient = createClient(SUPABASE_URL, SERVER_AUTH_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    });
-  }
-  return serverClient;
-}
-
-/**
- * Request an email OTP using Supabase Auth signInWithOtp with shouldCreateUser: false.
- * Only pre-existing registered users will be sent an OTP code.
- */
-export async function requestEmailOtp(email: string, shouldCreateUser = false): Promise<void> {
-  const client = getServerClient();
-  const { error } = await client.auth.signInWithOtp({
-    email: email.trim().toLowerCase(),
-    options: {
-      shouldCreateUser,
-    },
+async function sendOtpEmail(email: string, code: string): Promise<void> {
+  if (!RESEND_API_KEY || !EMAIL_FROM) throw new Error('Resend is not configured. Set RESEND_API_KEY and EMAIL_FROM.');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [email],
+      subject: 'Your Mid-Ama Promo login code',
+      text: `Your Mid-Ama Promo verification code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto"><h2>Mid-Ama Promo</h2><p>Your one-time verification code is:</p><p style="font-size:30px;font-weight:bold;letter-spacing:8px">${code}</p><p>This code expires in 10 minutes. If you did not request it, ignore this email.</p></div>`,
+    }),
   });
-
-  if (error) {
-    throw new Error(`Supabase Auth request failed: ${error.message}`);
-  }
+  if (!response.ok) throw new Error(`Resend email delivery failed (${response.status}): ${await response.text()}`);
 }
 
-/**
- * Verify an email OTP token using Supabase Auth verifyOtp.
- */
-export async function verifyEmailOtp(
-  email: string,
-  token: string
-): Promise<{ access_token: string; user?: { id?: string; email?: string } }> {
-  const client = getServerClient();
-  const { data, error } = await client.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: token.trim(),
-    type: 'email',
-  });
-
-  if (error || !data?.session?.access_token) {
-    throw new Error(error?.message || 'OTP verification failed.');
-  }
-
-  return {
-    access_token: data.session.access_token,
-    user: {
-      id: data.user?.id,
-      email: data.user?.email,
-    },
-  };
+export async function requestEmailOtp(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+  const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+  remoteStoreOtp(normalized, hashCode(normalized, code), expiresAt);
+  try { await sendOtpEmail(normalized, code); }
+  catch (error) { remoteDeleteOtp(normalized); throw error; }
 }
 
-/**
- * Validate a Supabase access token (JWT) server-side and return the verified Supabase user.
- */
-export async function verifyAccessToken(
-  accessToken: string
-): Promise<{ id: string; email?: string } | null> {
-  if (!isSupabaseConfigured() || !accessToken) return null;
-  try {
-    const client = getServerClient();
-    const { data, error } = await client.auth.getUser(accessToken.trim());
-    if (error || !data?.user) return null;
-    return {
-      id: data.user.id,
-      email: data.user.email,
-    };
-  } catch (_) {
-    return null;
+export async function verifyEmailOtp(email: string, token: string): Promise<{ email: string }> {
+  const normalized = email.trim().toLowerCase();
+  const candidateHash = hashCode(normalized, token.trim());
+  // One atomic DELETE both validates and consumes the OTP, preventing parallel replay.
+  if (!remoteConsumeOtp(normalized, candidateHash)) {
+    throw new Error('The code is invalid or has expired.');
   }
+  return { email: normalized };
 }

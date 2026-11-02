@@ -8,13 +8,15 @@ import {
   remoteGetState,
   remoteInitializeState,
   remoteUpdateState,
+  remoteEnsureDatabase,
+  remoteStorageConfigured,
+  remoteCheckAuth,
 } from './remote.ts';
 
 export const isProduction = process.env.NODE_ENV === 'production' || (Boolean(process.env.K_SERVICE) && !process.env.K_SERVICE?.startsWith('ais-dev-'));
 
 export interface User {
   id: string;
-  authUserId?: string;
   email: string;
   name: string; // Artist or Label Name / Artist Name
   realFirstName?: string;
@@ -281,7 +283,7 @@ export const remoAdminPassword = process.env.MID_AMA_ADMIN_PASSWORD_HASH || '5de
 export const DESIGNATED_ADMIN_EMAILS = ['remoabetswemolefi@gmail.com'];
 
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
-const SESSION_SECRET = process.env.MID_AMA_SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'mid-ama-development-session-secret-change-me';
+const SESSION_SECRET = process.env.MID_AMA_SESSION_SECRET || process.env.OTP_HASH_SECRET || 'mid-ama-development-session-secret-change-me';
 
 function base64UrlEncode(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64url');
@@ -417,16 +419,16 @@ class Database {
   private remoteVersion: number = 0;
 
   constructor() {
+    if (remotePersistenceConfigured) remoteEnsureDatabase();
     if (isProduction) {
       if (!remotePersistenceConfigured) {
         const missing = [];
-        if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
-        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+        if (!process.env.DATABASE_URL) missing.push('DATABASE_URL');
         const err = new Error(
           `[FATAL PRODUCTION CONFIGURATION ERROR] The Mid-Ama Promo application is running in production mode, ` +
-          `but required Supabase environment variable(s) are missing: ${missing.join(', ')}. ` +
+          `but required Neon PostgreSQL environment variable(s) are missing: ${missing.join(', ')}. ` +
           `Silent fallback to ephemeral local JSON storage (data/db.json) is strictly prohibited in production ` +
-          `because container restarts will cause data loss. Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your deployment environment.`
+          `because container restarts will cause data loss. Configure DATABASE_URL in your Render environment.`
         );
         console.error('\n' + '!'.repeat(80));
         console.error(err.message);
@@ -436,10 +438,10 @@ class Database {
       this.ensureRemoteInitialized();
     } else {
       if (remotePersistenceConfigured) {
-        console.log('[DB] Development mode: Supabase persistence enabled.');
+        console.log('[DB] Development mode: Neon PostgreSQL persistence enabled.');
         this.ensureRemoteInitialized();
       } else {
-        console.warn('[DB] Development mode: using local JSON database (data/db.json). NOTE: Production strictly requires Supabase.');
+        console.warn('[DB] Development mode: using local JSON database (data/db.json). NOTE: Production strictly requires Neon PostgreSQL.');
         this.ensureInitialized();
       }
     }
@@ -512,8 +514,7 @@ class Database {
     };
   }
 
-  // Hosted production persistence. The remote store is authoritative; the local JSON file is only
-  // used as a one-time migration source when the hosted database is empty.
+  // Neon PostgreSQL is authoritative for hosted application state.
   private ensureRemoteInitialized() {
     try {
       const remote = remoteGetState();
@@ -525,28 +526,15 @@ class Database {
         return;
       }
 
-      let seed: DatabaseSchema = JSON.parse(JSON.stringify(INITIAL_DB));
-      // Prefer the newest bundled rolling backup. `db.json.last_good` can legitimately be older
-      // than the newest rolling snapshot, so it must not win simply because it has a special name.
-      try {
-        const backups = fs.readdirSync(BACKUPS_DIR)
-          .filter(f => f.startsWith('db_backup_') && f.endsWith('.json'))
-          .sort()
-          .reverse();
-        for (const backup of backups) {
-          try {
-            const candidate = this.validateAndMigrate(JSON.parse(fs.readFileSync(path.join(BACKUPS_DIR, backup), 'utf8')));
-            seed = candidate;
-            break;
-          } catch (_) {}
-        }
-      } catch (_) {}
+      // A new Neon database starts with the application's defined system seed only.
+      // Customer records are never imported from ZIP backups or another provider automatically.
+      const seed: DatabaseSchema = JSON.parse(JSON.stringify(INITIAL_DB));
       const initialized = remoteInitializeState(this.validateAndMigrate(seed));
       this.remoteVersion = Number(initialized.version);
       this.cachedData = this.validateAndMigrate(initialized.state);
       console.log(`[DB] Hosted database initialized from bundled recovery data: ${this.cachedData.users.length} users.`);
     } catch (error) {
-      throw new Error(`[DB] Hosted persistence initialization failed. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY correctly and run the supplied SQL schema. ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`[DB] Hosted persistence initialization failed. Set DATABASE_URL correctly; the application creates its own tables automatically. ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -670,12 +658,12 @@ class Database {
     if (isProduction || remotePersistenceConfigured) {
       if (!remotePersistenceConfigured) {
         throw new Error(
-          '[DB FATAL] Production database cannot fall back to local disk. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.'
+          '[DB FATAL] Production database cannot fall back to local disk. DATABASE_URL is required.'
         );
       }
       try {
         const remote = remoteGetState();
-        if (!remote) throw new Error('Hosted database row is missing in Supabase. Refusing to fall back to an empty database.');
+        if (!remote) throw new Error('Hosted database row is missing in Neon. Refusing to fall back to an empty database.');
         this.remoteVersion = Number(remote.version);
         this.cachedData = this.validateAndMigrate(remote.state);
         return this.cachedData;
@@ -715,14 +703,14 @@ class Database {
     if (isProduction || remotePersistenceConfigured) {
       if (!remotePersistenceConfigured) {
         throw new Error(
-          '[DB FATAL] Production database cannot fall back to local disk. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.'
+          '[DB FATAL] Production database cannot fall back to local disk. DATABASE_URL is required.'
         );
       }
       // Optimistic concurrency with a database-side compare-and-swap function.
       // This prevents two Cloud Run instances from overwriting each other's registrations.
       for (let attempt = 0; attempt < 8; attempt++) {
         const remote = remoteGetState();
-        if (!remote) throw new Error('Hosted database row is missing in Supabase. Refusing to overwrite it with a clean seed.');
+        if (!remote) throw new Error('Hosted database row is missing in Neon. Refusing to overwrite it with a clean seed.');
         const current = this.validateAndMigrate(remote.state);
         const result = mutator(current);
         const validated = this.validateAndMigrate(current);
@@ -1045,13 +1033,13 @@ class Database {
     if (remotePersistenceConfigured) {
       const data = this.getAuthoritativeData();
       return {
-        persistenceMode: 'supabase-postgres',
-        supabaseConfigured: true,
+        persistenceMode: 'neon-postgres',
+        neonConfigured: true,
         databaseConfigured: true,
-        storageConfigured: true,
-        authConfigured: true,
-        mode: 'supabase-postgres',
-        databaseFile: 'hosted:midama_state',
+        storageConfigured: remoteStorageConfigured,
+        authConfigured: remoteCheckAuth(),
+        mode: 'neon-postgres',
+        databaseFile: 'hosted:midama_app_state',
         dataDirectory: 'hosted',
         backupsDirectory: 'hosted database backups / provider backups',
         exists: true,
@@ -1087,7 +1075,7 @@ class Database {
 
     return {
       persistenceMode: 'local-json',
-      supabaseConfigured: false,
+      neonConfigured: false,
       databaseConfigured: false,
       storageConfigured: false,
       authConfigured: false,

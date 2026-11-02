@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import fs from 'fs';
+import crypto from 'node:crypto';
 import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const DATABASE_URL = process.env.DATABASE_URL || '';
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || '';
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
@@ -12,177 +12,124 @@ const R2_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestora
 const R2_REGION = 'auto';
 
 export const remoteStorageConfigured = Boolean(R2_ACCOUNT_ID && R2_BUCKET_NAME && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY);
-export const remotePersistenceConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+export const remotePersistenceConfigured = Boolean(DATABASE_URL);
 
-const workerSource = `
-import { parentPort } from 'node:worker_threads';
+// PostgreSQL runs in a worker so this legacy synchronous data layer can remain stable
+// while all database operations execute against Neon using the native PostgreSQL protocol.
+const pgWorkerSource = `
+const { parentPort } = require('node:worker_threads');
+const { Client } = require('pg');
+let client;
+let connecting;
+let connected = false;
+async function getClient() {
+  if (client && connected) return client;
+  if (!connecting) {
+    connecting = (async () => {
+      const nextClient = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: true }, connectionTimeoutMillis: 15000, statement_timeout: 30000 });
+      await nextClient.connect();
+      client = nextClient; connected = true;
+      nextClient.on('error', (e) => { console.error('[NEON WORKER]', e.message); client = null; connected = false; connecting = null; });
+      return nextClient;
+    })();
+  }
+  try { return await connecting; } finally { connecting = null; }
+}
+parentPort.on('message', async (msg) => {
+  const out = msg.port || parentPort;
+  try {
+    const db = await getClient();
+    const result = await db.query(msg.sql, msg.params || []);
+    out.postMessage({ ok: true, rows: result.rows, rowCount: result.rowCount });
+  } catch (e) { out.postMessage({ ok: false, error: e.message || String(e), code: e.code }); }
+});
+`;
+let pgWorker = null;
+function getPgWorker() {
+  if (!pgWorker) {
+    pgWorker = new Worker(pgWorkerSource, { eval: true });
+    pgWorker.on('error', e => { console.error('[NEON WORKER ERROR]', e); pgWorker = null; });
+    pgWorker.on('exit', () => { pgWorker = null; });
+    pgWorker.unref();
+  }
+  return pgWorker;
+}
+function pgQuery(sql, params = []) {
+  if (!remotePersistenceConfigured) throw new Error('DATABASE_URL is not configured.');
+  const { port1, port2 } = new MessageChannel();
+  getPgWorker().postMessage({ sql, params, port: port2 }, [port2]);
+  const deadline = Date.now() + 35000;
+  let result = null;
+  while (Date.now() < deadline) {
+    const message = receiveMessageOnPort(port1);
+    if (message) { result = message.message; break; }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  }
+  port1.close();
+  if (!result) throw new Error('Neon database request timed out.');
+  if (!result.ok) throw new Error(`Neon database error (${result.code || 'unknown'}): ${result.error}`);
+  return result;
+}
+
+export interface RemoteStateRecord { id: string; version: number; state: any; updated_at?: string; }
+export function remoteEnsureDatabase(): void {
+  pgQuery(`CREATE TABLE IF NOT EXISTS midama_app_state (id text PRIMARY KEY, version bigint NOT NULL DEFAULT 1, state jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`);
+  pgQuery(`CREATE TABLE IF NOT EXISTS midama_email_otps (email text PRIMARY KEY, code_hash text NOT NULL, expires_at timestamptz NOT NULL, attempts integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now())`);
+  console.log('[NEON] Application state and OTP tables are ready.');
+}
+export function remoteGetState(): RemoteStateRecord | null {
+  const rows = pgQuery('SELECT id, version, state, updated_at FROM midama_app_state WHERE id=$1', ['main']).rows;
+  return rows[0] || null;
+}
+export function remoteInitializeState(state: any): RemoteStateRecord {
+  const rows = pgQuery(`INSERT INTO midama_app_state (id, version, state) VALUES ('main', 1, $1::jsonb) ON CONFLICT (id) DO NOTHING RETURNING id, version, state, updated_at`, [JSON.stringify(state)]).rows;
+  return rows[0] || remoteGetState()!;
+}
+export function remoteUpdateState(expectedVersion: number, state: any): RemoteStateRecord | null {
+  const rows = pgQuery('UPDATE midama_app_state SET version=version+1, state=$1::jsonb, updated_at=now() WHERE id=$2 AND version=$3 RETURNING id, version, state, updated_at', [JSON.stringify(state), 'main', expectedVersion]).rows;
+  return rows[0] || null;
+}
+export function remoteStoreOtp(email: string, codeHash: string, expiresAt: Date): void {
+  pgQuery(`INSERT INTO midama_email_otps(email,code_hash,expires_at,attempts,created_at) VALUES($1,$2,$3,0,now()) ON CONFLICT(email) DO UPDATE SET code_hash=EXCLUDED.code_hash, expires_at=EXCLUDED.expires_at, attempts=0, created_at=now()`, [email, codeHash, expiresAt.toISOString()]);
+}
+export function remoteConsumeOtp(email: string, codeHash: string): boolean {
+  const consumed = pgQuery('DELETE FROM midama_email_otps WHERE email=$1 AND code_hash=$2 AND expires_at > now() AND attempts < 8 RETURNING email', [email, codeHash]).rows;
+  if (consumed.length) return true;
+  pgQuery('UPDATE midama_email_otps SET attempts=attempts+1 WHERE email=$1 AND expires_at > now() AND attempts < 8', [email]);
+  pgQuery('DELETE FROM midama_email_otps WHERE email=$1 AND expires_at <= now()', [email]);
+  return false;
+}
+export function remoteDeleteOtp(email: string): void { pgQuery('DELETE FROM midama_email_otps WHERE email=$1', [email]); }
+export function remoteCheckDatabase(): boolean { try { pgQuery('SELECT 1'); return true; } catch (_) { return false; } }
+export function remoteCheckStorage(): boolean {
+  if (!remoteStorageConfigured) return false;
+  try { const url = new URL(`${R2_ENDPOINT}/${awsEncode(R2_BUCKET_NAME)}`); const headers = r2Authorization('HEAD', url, {}, sha256('')); requestSync(url.toString(), { method: 'HEAD', headers }); return true; } catch (_) { return false; }
+}
+export function remoteCheckAuth(): boolean { return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM); }
+const httpWorkerSource = `
+const { parentPort } = require('node:worker_threads');
 parentPort.on('message', async (msg) => {
   const out = msg.port || parentPort;
   try {
     const headers = { ...(msg.headers || {}) };
-    let body = msg.body;
-    if (msg.bodyBase64) {
-      body = Buffer.from(msg.bodyBase64, 'base64');
-    }
-    const response = await fetch(msg.url, {
-      method: msg.method || 'GET',
-      headers,
-      body: body === undefined || body === null ? undefined : body,
-    });
+    const body = msg.bodyBase64 ? Buffer.from(msg.bodyBase64, 'base64') : msg.body;
+    const response = await fetch(msg.url, { method: msg.method || 'GET', headers, body: body == null ? undefined : body });
     const buffer = Buffer.from(await response.arrayBuffer());
-    out.postMessage({
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      contentType: response.headers.get('content-type') || '',
-      bodyBase64: buffer.toString('base64'),
-    });
-  } catch (error) {
-    out.postMessage({ ok: false, status: 0, statusText: error?.message || String(error), contentType: '', bodyBase64: '' });
-  }
+    out.postMessage({ ok: response.ok, status: response.status, statusText: response.statusText, bodyBase64: buffer.toString('base64') });
+  } catch (e) { out.postMessage({ ok: false, status: 0, statusText: e.message || String(e), bodyBase64: '' }); }
 });
 `;
-
-let sharedWorker: Worker | null = null;
-
-function getSharedWorker(): Worker {
-  if (!sharedWorker) {
-    sharedWorker = new Worker(workerSource, { eval: true });
-    sharedWorker.on('error', (err) => {
-      console.error('[REMOTE WORKER ERROR]', err);
-      try { sharedWorker?.terminate(); } catch (_) {}
-      sharedWorker = null;
-    });
-    sharedWorker.on('exit', () => {
-      sharedWorker = null;
-    });
-    sharedWorker.unref();
-  }
-  return sharedWorker;
-}
-
-function requestSync(url: string, options: { method?: string; headers?: Record<string, string>; body?: string | Buffer } = {}) {
+let httpWorker = null;
+function requestSync(url, options = {}) {
+  if (!httpWorker) { httpWorker = new Worker(httpWorkerSource, { eval: true }); httpWorker.on('error', e => { console.error('[HTTP WORKER]', e); httpWorker = null; }); httpWorker.on('exit', () => { httpWorker = null; }); httpWorker.unref(); }
   const { port1, port2 } = new MessageChannel();
-  const worker = getSharedWorker();
-  const body = options.body;
-  worker.postMessage({
-    url,
-    method: options.method || 'GET',
-    headers: options.headers || {},
-    body: typeof body === 'string' ? body : undefined,
-    bodyBase64: Buffer.isBuffer(body) ? body.toString('base64') : undefined,
-    port: port2,
-  }, [port2]);
-
-  const deadline = Date.now() + 30000;
-  let result: any = null;
-  while (Date.now() < deadline) {
-    const message = receiveMessageOnPort(port1);
-    if (message) {
-      result = message.message;
-      break;
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
-  }
+  httpWorker.postMessage({ url, method: options.method || 'GET', headers: options.headers || {}, body: typeof options.body === 'string' ? options.body : undefined, bodyBase64: Buffer.isBuffer(options.body) ? options.body.toString('base64') : undefined, port: port2 }, [port2]);
+  const deadline = Date.now() + 30000; let result = null;
+  while (Date.now() < deadline) { const msg = receiveMessageOnPort(port1); if (msg) { result = msg.message; break; } Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); }
   port1.close();
-  if (!result) {
-    try { sharedWorker?.terminate(); } catch (_) {}
-    sharedWorker = null;
-    throw new Error(`Remote persistence request timed out: ${url}`);
-  }
-  if (!result.ok) {
-    const raw = Buffer.from(result.bodyBase64 || '', 'base64').toString('utf8');
-    throw new Error(`Remote persistence request failed (${result.status}): ${raw || result.statusText}`);
-  }
-  const raw = Buffer.from(result.bodyBase64 || '', 'base64');
-  return { ...result, raw, text: raw.toString('utf8') };
-}
-
-function authHeaders(extra: Record<string, string> = {}) {
-  return {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    ...extra,
-  };
-}
-
-export interface RemoteStateRecord {
-  id: string;
-  version: number;
-  state: any;
-  updated_at?: string;
-}
-
-export function remoteGetState(): RemoteStateRecord | null {
-  if (!remotePersistenceConfigured) return null;
-  const result = requestSync(`${SUPABASE_URL}/rest/v1/midama_state?id=eq.main&select=id,version,state,updated_at`, {
-    headers: authHeaders({ Accept: 'application/json' }),
-  });
-  const rows = JSON.parse(result.text || '[]');
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
-}
-
-export function remoteInitializeState(state: any): RemoteStateRecord {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
-  const result = requestSync(`${SUPABASE_URL}/rest/v1/midama_state`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' }),
-    body: JSON.stringify({ id: 'main', version: 1, state }),
-  });
-  const rows = JSON.parse(result.text || '[]');
-  if (!Array.isArray(rows) || !rows[0]) throw new Error('Supabase did not return the initialized state.');
-  return rows[0];
-}
-
-export function remoteUpdateState(expectedVersion: number, state: any): RemoteStateRecord | null {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
-
-  // Strategy 1: Attempt the RPC function call
-  try {
-    const result = requestSync(`${SUPABASE_URL}/rest/v1/rpc/midama_update_state`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ expected_version: expectedVersion, next_state: state }),
-    });
-    const rows = JSON.parse(result.text || 'null');
-    if (Array.isArray(rows) && rows[0]) {
-      return rows[0];
-    }
-    if (Array.isArray(rows) && rows.length === 0) {
-      // Empty array means version mismatch (concurrent update)
-      return null;
-    }
-  } catch (rpcError: any) {
-    // If the RPC failed (such as column ambiguity error 42702 or missing RPC definition),
-    // use the native atomic conditional PATCH on the midama_state table.
-    console.warn('[DB] RPC midama_update_state error, using atomic conditional PATCH fallback:', rpcError?.message || rpcError);
-  }
-
-  // Strategy 2: Native atomic PostgREST conditional PATCH
-  // Equivalent to: UPDATE public.midama_state SET version = expectedVersion + 1, state = $1, updated_at = now() WHERE id = 'main' AND version = expectedVersion RETURNING *;
-  try {
-    const patchResult = requestSync(
-      `${SUPABASE_URL}/rest/v1/midama_state?id=eq.main&version=eq.${expectedVersion}`,
-      {
-        method: 'PATCH',
-        headers: authHeaders({
-          'Content-Type': 'application/json',
-          Prefer: 'return=representation',
-          Accept: 'application/json',
-        }),
-        body: JSON.stringify({
-          version: expectedVersion + 1,
-          state,
-          updated_at: new Date().toISOString(),
-        }),
-      }
-    );
-    const patchRows = JSON.parse(patchResult.text || '[]');
-    return Array.isArray(patchRows) && patchRows[0] ? patchRows[0] : null;
-  } catch (patchError: any) {
-    console.error('[DB] Atomic conditional PATCH failed:', patchError?.message || patchError);
-    throw patchError;
-  }
+  if (!result) throw new Error(`Remote request timed out: ${url}`);
+  if (!result.ok) throw new Error(`Remote request failed (${result.status}): ${Buffer.from(result.bodyBase64 || '', 'base64').toString('utf8') || result.statusText}`);
+  const raw = Buffer.from(result.bodyBase64 || '', 'base64'); return { ...result, raw, text: raw.toString('utf8') };
 }
 
 function sha256(value: string | Buffer): string { return crypto.createHash('sha256').update(value).digest('hex'); }
@@ -264,112 +211,12 @@ export function remoteEnsureBucket(): void {
   }
 }
 
-export interface SupabaseAuthUser {
-  id: string;
-  email?: string;
-  user_metadata?: Record<string, any>;
-}
 
-export function remoteCreateAuthUser(email: string, password: string, userMetadata: Record<string, any> = {}): SupabaseAuthUser {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
-  const result = requestSync(`${SUPABASE_URL}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-    body: JSON.stringify({ email: email.trim().toLowerCase(), password, email_confirm: true, user_metadata: userMetadata }),
-  });
-  const user = JSON.parse(result.text || '{}');
-  if (!user?.id) throw new Error('Supabase Auth did not return a user ID.');
-  return user;
-}
-
-export function remoteDeleteAuthUser(authUserId: string): void {
-  if (!remotePersistenceConfigured) return;
-  requestSync(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
-    method: 'DELETE',
-    headers: authHeaders({ Accept: 'application/json' }),
-  });
-}
-
-export function remoteUpdateAuthUser(authUserId: string, patch: Record<string, any>): SupabaseAuthUser {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
-  const result = requestSync(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
-    method: 'PUT',
-    headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-    body: JSON.stringify(patch),
-  });
-  const user = JSON.parse(result.text || '{}');
-  if (!user?.id) throw new Error('Supabase Auth did not return the updated user.');
-  return user;
-}
-
-export function remoteFindAuthUserByEmail(email: string): SupabaseAuthUser | null {
-  if (!remotePersistenceConfigured) return null;
-  const target = email.trim().toLowerCase();
-  for (let page = 1; page <= 20; page++) {
-    const result = requestSync(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=100`, { headers: authHeaders({ Accept: 'application/json' }) });
-    const payload = JSON.parse(result.text || '{}');
-    const users = Array.isArray(payload?.users) ? payload.users : [];
-    const found = users.find((u: any) => String(u.email || '').toLowerCase() === target);
-    if (found) return found;
-    if (users.length < 100) break;
-  }
-  return null;
-}
-
-export function remoteCheckDatabase(): boolean {
-  if (!remotePersistenceConfigured) return false;
-  try {
-    const result = requestSync(`${SUPABASE_URL}/rest/v1/midama_state?id=eq.main&select=id,version`, {
-      headers: authHeaders({ Accept: 'application/json' }),
-    });
-    return Boolean(result && result.ok);
-  } catch (_) {
-    return false;
-  }
-}
-
-export function remoteCheckStorage(): boolean {
-  if (!remoteStorageConfigured) return false;
-  try {
-    const url = new URL(`${R2_ENDPOINT}/${awsEncode(R2_BUCKET_NAME)}`);
-    const headers = r2Authorization('HEAD', url, {}, sha256(''));
-    requestSync(url.toString(), { method: 'HEAD', headers });
-    return true;
-  } catch (_) { return false; }
-}
-
-export function remoteCheckAuth(): boolean {
-  if (!remotePersistenceConfigured) return false;
-  try {
-    const result = requestSync(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1`, {
-      headers: authHeaders({ Accept: 'application/json' }),
-    });
-    return Boolean(result && result.ok);
-  } catch (_) {
-    return false;
-  }
-}
-
-export function remoteObjectPathFromStoredName(storedName: string): string {
-  return storedName.replace(/^(?:remote:|r2:)/, '');
-}
-
+export function remoteObjectPathFromStoredName(storedName: string): string { return storedName.replace(/^(?:remote:|r2:)/, ''); }
 export function isR2StoredName(storedName: string): boolean { return storedName.startsWith('r2:'); }
-
 export function remoteSignedUrlForStoredName(storedName: string, expiresInSeconds = 300): string {
-  const objectPath = remoteObjectPathFromStoredName(storedName);
-  if (isR2StoredName(storedName)) return remoteSignedUrl(objectPath, expiresInSeconds);
-  if (!remotePersistenceConfigured) throw new Error('Legacy Supabase Storage is unavailable until the bucket restriction is lifted.');
-  const result = requestSync(`${SUPABASE_URL}/storage/v1/object/sign/midama-assets/${objectPath.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }), body: JSON.stringify({ expiresIn: expiresInSeconds }) });
-  const data = JSON.parse(result.text || '{}'); const signed = data.signedURL || data.signedUrl || data.path;
-  if (!signed) throw new Error('Supabase did not return a signed asset URL.');
-  return signed.startsWith('http') ? signed : `${SUPABASE_URL}/storage/v1${signed}`;
+  if (!isR2StoredName(storedName)) throw new Error('This is a legacy non-R2 asset. It must be separately migrated to Cloudflare R2 before it can be downloaded from this portal.');
+  return remoteSignedUrl(remoteObjectPathFromStoredName(storedName), expiresInSeconds);
 }
-
-export function encodeRemoteAssetPath(objectPath: string): string {
-  return Buffer.from(objectPath, 'utf8').toString('base64url');
-}
-
-export function decodeRemoteAssetPath(encoded: string): string {
-  return Buffer.from(encoded, 'base64url').toString('utf8');
-}
+export function encodeRemoteAssetPath(objectPath: string): string { return Buffer.from(objectPath, 'utf8').toString('base64url'); }
+export function decodeRemoteAssetPath(encoded: string): string { return Buffer.from(encoded, 'base64url').toString('utf8'); }

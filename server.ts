@@ -4,69 +4,23 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import { apiRouter, getAuthTokenFromRequest } from './server/routes.ts';
-import { db, canAccessUploadedFile, UPLOADS_DIR, isProduction } from './server/db.ts';
+import { db, canAccessUploadedFile, UPLOADS_DIR, isProduction, verifySessionToken } from './server/db.ts';
 import {
   remotePersistenceConfigured,
   remoteStorageConfigured,
   remoteEnsureBucket,
   remoteUploadFile,
-  remoteFindAuthUserByEmail,
-  remoteCreateAuthUser,
 } from './server/remote.ts';
 
-// CRITICAL SAFETY REQUIREMENT:
-// If running in production and Supabase environment variables are missing,
-// fail loudly and immediately. Silent fallback to local JSON database is strictly forbidden in production.
-if (isProduction && !remoteStorageConfigured) {
-  console.error('[FATAL R2 CONFIGURATION ERROR] Production requires R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY. Configure them in Render before deployment.');
-  process.exit(1);
-}
-
-if (isProduction && !remotePersistenceConfigured) {
-  const missing = [];
-  if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
-  if (!process.env.SUPABASE_ANON_KEY && !process.env.SUPABASE_PUBLISHABLE_KEY) missing.push('SUPABASE_ANON_KEY');
-
-  const errorBanner = `
-================================================================================
-[FATAL PRODUCTION CONFIGURATION ERROR]
-The application is running in production mode, but the required Supabase
-environment variable(s) are missing:
-  ${missing.map(m => `* ${m}`).join('\n  ')}
-
-CRITICAL DATA SAFETY NOTICE:
-In production, silent fallback to local JSON storage (data/db.json) is disabled.
-Google Cloud Run containers are ephemeral and stateless: any data written to
-local disk will vanish upon instance restart or deployment.
-
-TO FIX THIS:
-1. Provide the following environment variables in your deployment settings:
-   - SUPABASE_URL: Your Supabase Project URL (e.g. https://xyzcompany.supabase.co)
-   - SUPABASE_SERVICE_ROLE_KEY: Your Supabase service_role secret key
-   - SUPABASE_ANON_KEY: Your Supabase anon/publishable key for email OTP authentication
-2. Ensure you have run supabase-schema.sql in your Supabase SQL Editor.
-================================================================================
-`;
-  console.error(errorBanner);
-  process.exit(1);
-}
-
-function syncClientAuthUsers() {
-  if (!remotePersistenceConfigured) return;
-  const clients = db.getUsers().filter(u => !u.authUserId);
-  let synced = 0;
-  for (const client of clients) {
-    try {
-      const authUser = remoteFindAuthUserByEmail(client.email) || remoteCreateAuthUser(client.email, crypto.randomUUID(), { role: client.role, name: client.name, midama_user_id: client.id });
-      db.updateUser(client.id, { authUserId: authUser.id });
-      synced++;
-    } catch (error: any) {
-      console.warn(`[SUPABASE AUTH] Could not sync ${client.email}:`, error?.message || error);
-    }
+// Production must use durable Neon persistence; never silently fall back to local disk.
+if (isProduction) {
+  const missing = ['DATABASE_URL', 'MID_AMA_SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', 'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'].filter(key => !process.env[key]);
+  if (missing.length) {
+    console.error(`[FATAL CONFIGURATION ERROR] Production is missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
   }
-  if (synced) console.log(`[SUPABASE AUTH] Linked ${synced} existing client account(s) to Supabase Auth.`);
 }
+
 
 function migrateLocalAssetsToHostedStorage() {
   if (!remoteStorageConfigured) return;
@@ -106,7 +60,7 @@ function migrateLocalAssetsToHostedStorage() {
     }
   }
 
-  if (migrated) console.log(`[REMOTE STORAGE] Migrated ${migrated} existing local asset(s) to Supabase Storage.`);
+  if (migrated) console.log(`[R2 STORAGE] Migrated ${migrated} existing local asset(s) to Cloudflare R2.`);
 }
 
 const app = express();
@@ -134,8 +88,8 @@ app.use('/uploads', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   let user = null;
   if (token) {
-    const parts = token.split(':');
-    user = db.findUserById(parts[0]) || null;
+    const session = verifySessionToken(token);
+    user = session ? db.findUserById(session.userId) || null : null;
   }
 
   const requestedFilename = path.basename(req.path);
@@ -160,7 +114,6 @@ app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: 
 // Start server with Vite middleware in dev or static files in production
 async function startServer() {
   if (remoteStorageConfigured) { remoteEnsureBucket(); migrateLocalAssetsToHostedStorage(); }
-  if (remotePersistenceConfigured) syncClientAuthUsers();
   if (!isProduction) {
     const { createServer } = await import('vite');
     const vite = await createServer({

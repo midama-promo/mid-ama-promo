@@ -1,8 +1,6 @@
-# R2 implementation notes
+# Cloudflare R2 implementation
 
-- Supabase Postgres and Supabase Auth configuration remain unchanged.
-- New file uploads use Cloudflare R2 through its S3-compatible endpoint and SigV4 request signing.
-- The R2 bucket is expected to exist already; application startup performs a signed bucket connectivity check and does not create/delete buckets.
-- R2 object keys are stored with an `r2:` prefix. Existing `remote:` values continue to identify legacy Supabase Storage objects.
-- The Cloudflare API token is not required for normal S3-compatible uploads/downloads. The R2 Access Key ID and Secret Access Key are required and must be server-side Render environment variables.
-- This code has had TypeScript syntax/transpilation checks. A full dependency install, production build, and live R2 upload/download test have not yet been completed in this environment.
+- Cloudflare R2 remains the private object store for new audio, artwork and documents.
+- Objects are stored with an `r2:` reference and delivered through short-lived signed URLs after application authorization.
+- New uploads require `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`.
+- Legacy file references from a former storage provider are not silently rewritten or deleted. Any legacy asset migration must be separately reviewed and verified.

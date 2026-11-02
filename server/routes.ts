@@ -28,7 +28,7 @@ import type {
   WithdrawalRequest,
 } from './db.ts';
 import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail } from './mailer.ts';
-import { requestEmailOtp, verifyEmailOtp, verifyAccessToken, isSupabaseConfigured } from './otp.ts';
+import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
 import {
   remotePersistenceConfigured,
   remoteStorageConfigured,
@@ -38,10 +38,6 @@ import {
   encodeRemoteAssetPath,
   decodeRemoteAssetPath,
   remoteObjectPathFromStoredName,
-  remoteCreateAuthUser,
-  remoteFindAuthUserByEmail,
-  remoteUpdateAuthUser,
-  remoteDeleteAuthUser,
   remoteCheckDatabase,
   remoteCheckStorage,
   remoteCheckAuth,
@@ -49,8 +45,7 @@ import {
 
 export const apiRouter = express.Router();
 
-// Best-effort application-side OTP throttling. Supabase Auth also enforces its own
-// per-IP and per-user limits; these limits add a local defense layer.
+// Application-side OTP throttling adds a per-IP and per-email defense layer.
 const otpRequestByKey = new Map<string, number>();
 const otpVerifyAttempts = new Map<string, { count: number; resetAt: number }>();
 const OTP_REQUEST_COOLDOWN_MS = 60_000;
@@ -396,71 +391,30 @@ apiRouter.post('/payments/paystack/webhook', (req: Request, res: Response) => {
 // AUTH ROUTES
 // ----------------------------------------------------
 
-apiRouter.get('/auth/config', (_req: Request, res: Response) => {
-  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
-  return res.json({ supabaseUrl, supabaseAnonKey });
-});
+apiRouter.get('/auth/config', (_req: Request, res: Response) => res.json({ provider: 'resend', otpLength: 6 }));
 
 apiRouter.post('/auth/request-otp', async (req: Request, res: Response) => {
   const email = normalizeAuthEmail(req.body?.email);
-  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
-    return res.status(400).json({ error: 'Enter a valid email address.' });
-  }
-
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   const key = `${clientIp(req)}:${email}`;
   const now = Date.now();
   const last = otpRequestByKey.get(key) || 0;
-  const elapsed = now - last;
-
-  console.log(`[AUTH OTP DIAGNOSTIC] Request for ${email} from ${clientIp(req)} | Elapsed: ${elapsed}ms | Threshold: ${OTP_REQUEST_COOLDOWN_MS}ms`);
-
-  if (elapsed < OTP_REQUEST_COOLDOWN_MS) {
-    const remainingSecs = Math.max(1, Math.ceil((OTP_REQUEST_COOLDOWN_MS - elapsed) / 1000));
-    console.warn(`[AUTH OTP DIAGNOSTIC] Cooldown active for ${email}: ${remainingSecs}s remaining`);
+  if (now - last < OTP_REQUEST_COOLDOWN_MS) {
+    const remainingSecs = Math.max(1, Math.ceil((OTP_REQUEST_COOLDOWN_MS - (now - last)) / 1000));
     return res.status(429).json({ error: `Please wait ${remainingSecs} seconds before requesting another login code.` });
   }
   otpRequestByKey.set(key, now);
-
-  // If the user is already a registered client in Mid-Ama, ensure their Supabase Auth user exists
-  // so that signInWithOtp with shouldCreateUser: false will succeed.
-  if (remotePersistenceConfigured) {
-    const existingClient = db.findUserByEmail(email);
-    if (existingClient && !existingClient.authUserId) {
-      try {
-        const authUser =
-          remoteFindAuthUserByEmail(email) ||
-          remoteCreateAuthUser(email, crypto.randomUUID(), {
-            role: existingClient.role,
-            name: existingClient.name,
-            midama_user_id: existingClient.id,
-          });
-        db.updateUser(existingClient.id, { authUserId: authUser.id });
-      } catch (syncErr: any) {
-        console.warn('[AUTH OTP] Could not sync user with Supabase Auth:', syncErr?.message || syncErr);
-      }
+  const user = db.findUserByEmail(email);
+  // Return the same response for unknown accounts to avoid account enumeration.
+  if (user && user.status !== 'disabled') {
+    try { await requestEmailOtp(email); }
+    catch (error: any) {
+      otpRequestByKey.delete(key);
+      console.error('[AUTH OTP] Resend delivery failed:', error?.message || error);
+      return res.status(502).json({ error: 'We could not send your login code. Please try again later.' });
     }
   }
-
-  try {
-    // When Supabase is configured, send the OTP code via Supabase Auth.
-    // shouldCreateUser: false ensures unknown users are NEVER created.
-    if (isSupabaseConfigured()) {
-      console.log(`[AUTH OTP DIAGNOSTIC] Calling Supabase signInWithOtp for ${email}`);
-      await requestEmailOtp(email);
-      console.log(`[AUTH OTP DIAGNOSTIC] Supabase signInWithOtp dispatched successfully for ${email}`);
-    }
-  } catch (error: any) {
-    console.warn('[AUTH OTP DIAGNOSTIC] Supabase signInWithOtp returned:', error?.message || error);
-    if (error?.message && error.message.toLowerCase().includes('security purposes')) {
-      return res.status(429).json({ error: error.message });
-    }
-    // Respect security best practice: do not disclose whether an unauthenticated address exists.
-  }
-
-  return res.json({
-    message: 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.'
-  });
+  return res.json({ message: 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.' });
 });
 
 apiRouter.post('/auth/register-artist', async (req: Request, res: Response) => {
@@ -471,18 +425,20 @@ apiRouter.post('/auth/register-artist', async (req: Request, res: Response) => {
   if (!email || !/^\S+@\S+\.\S+$/.test(email) || !realFirstName || !realSurname || !artistName) {
     return res.status(400).json({ error: 'Real first name, surname, artist name, and a valid email are required.' });
   }
+  if (!remotePersistenceConfigured) return res.status(503).json({ error: 'Registration requires the Neon database to be configured.' });
   if (db.findUserByEmail(email)) return res.status(409).json({ error: 'An account with this email already exists. Please sign in using OTP.' });
-  if (!remotePersistenceConfigured) return res.status(503).json({ error: 'Artist registration is temporarily unavailable because production authentication is not configured.' });
   const id = `usr_client_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-  const now = new Date().toISOString();
-  let authUser: any = null;
+  const created: User = {
+    id, email, name: artistName, artistName, realFirstName, realSurname,
+    role: 'client', passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')),
+    status: 'active', createdAt: new Date().toISOString(), country: 'South Africa',
+  };
   try {
-    authUser = remoteCreateAuthUser(email, crypto.randomBytes(24).toString('base64url'), { role: 'client', name: artistName, real_first_name: realFirstName, real_surname: realSurname, artist_name: artistName, midama_user_id: id });
-    const created: User = { id, authUserId: authUser.id, email, name: artistName, artistName, realFirstName, realSurname, role: 'client', passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), status: 'active', createdAt: now, country: 'South Africa' };
-    try { db.createUser(created); } catch (dbErr) { try { remoteDeleteAuthUser(authUser.id); } catch (_) {} throw dbErr; }
-    await requestEmailOtp(email, false);
+    db.createUser(created);
+    await requestEmailOtp(email);
     return res.status(201).json({ message: 'Registration received. A one-time verification code has been sent to your email.', email });
   } catch (error: any) {
+    console.error('[AUTH REGISTRATION]', error?.message || error);
     return res.status(400).json({ error: error?.message || 'Could not complete registration.' });
   }
 });
@@ -490,76 +446,33 @@ apiRouter.post('/auth/register-artist', async (req: Request, res: Response) => {
 apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
   const email = normalizeAuthEmail(req.body?.email);
   const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
-  const accessToken = typeof req.body?.accessToken === 'string' ? req.body.accessToken.trim() : '';
-
-  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
-    return res.status(400).json({ error: 'Enter a valid email address.' });
-  }
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Enter the 6-digit code sent to your email.' });
 
   const key = `${clientIp(req)}:${email}`;
   const now = Date.now();
   const existing = otpVerifyAttempts.get(key);
-  if (!existing || existing.resetAt <= now) {
-    otpVerifyAttempts.set(key, { count: 0, resetAt: now + OTP_VERIFY_WINDOW_MS });
-  }
+  if (!existing || existing.resetAt <= now) otpVerifyAttempts.set(key, { count: 0, resetAt: now + OTP_VERIFY_WINDOW_MS });
   const state = otpVerifyAttempts.get(key)!;
-  if (state.count >= OTP_MAX_VERIFY_ATTEMPTS) {
-    return res.status(429).json({ error: 'Too many incorrect code attempts. Please request a new code and try again later.' });
+  if (state.count >= OTP_MAX_VERIFY_ATTEMPTS) return res.status(429).json({ error: 'Too many incorrect code attempts. Please request a new code and try again later.' });
+
+  try { await verifyEmailOtp(email, code); }
+  catch (error: any) {
+    state.count += 1;
+    return res.status(401).json({ error: 'The code is invalid or has expired. Please request a new code.' });
   }
 
-  let verifiedSupabaseUser: { id?: string; email?: string } | null = null;
-
-  // 1. Verify via Supabase access token if provided from client-side verifyOtp
-  if (accessToken) {
-    verifiedSupabaseUser = await verifyAccessToken(accessToken);
-  }
-
-  // 2. If no valid access token, verify OTP code with Supabase
-  if (!verifiedSupabaseUser) {
-    if (!code || !/^\d{6}$/.test(code)) {
-      return res.status(400).json({ error: 'Enter the 6-digit code sent to your email.' });
-    }
-    try {
-      if (isSupabaseConfigured()) {
-        console.log(`[AUTH OTP DIAGNOSTIC] Verifying OTP with Supabase for ${email}`);
-        const verified = await verifyEmailOtp(email, code);
-        verifiedSupabaseUser = verified?.user || { email };
-        console.log(`[AUTH OTP DIAGNOSTIC] Supabase OTP verification succeeded for ${email}`);
-      } else {
-        // Fallback for local testing when Supabase is not configured
-        verifiedSupabaseUser = { email };
-      }
-    } catch (error: any) {
-      state.count += 1;
-      console.warn('[AUTH OTP DIAGNOSTIC] Verification failed:', error?.message || error);
-      return res.status(401).json({ error: 'The code is invalid or has expired. Please request a new code.' });
-    }
-  }
-
-  const verifiedEmail = normalizeAuthEmail(verifiedSupabaseUser?.email || email);
-  const user = db.findUserByEmail(verifiedEmail);
-  if (!user) {
+  const user = db.findUserByEmail(email);
+  if (!user || user.status === 'disabled') {
     clearSessionCookie(res);
     return res.status(403).json({ error: 'This email is not authorized to access Mid-Ama Promo.' });
   }
-
-  // Enforce server-side role check: only designated admin email is granted admin privileges
-  const isDesignatedAdmin = verifiedEmail === 'remoabetswemolefi@gmail.com';
-  const role = isDesignatedAdmin ? 'admin' : 'client';
-
-  // Bind the verified Supabase identity to the existing Mid-Ama user record.
-  if (verifiedSupabaseUser?.id && verifiedSupabaseUser.id !== user.authUserId) {
-    db.updateUser(user.id, { authUserId: verifiedSupabaseUser.id, role });
-  } else if (user.role !== role) {
-    db.updateUser(user.id, { role });
-  }
-
-  state.count = 0;
-  state.resetAt = now + OTP_VERIFY_WINDOW_MS;
+  const role = DESIGNATED_ADMIN_EMAILS.includes(email) ? 'admin' : 'client';
+  if (user.role !== role) db.updateUser(user.id, { role });
+  otpVerifyAttempts.delete(key);
   const token = createSessionToken(user.id);
   setSessionCookie(res, token);
-  const { passwordHash: _passwordHash, ...safeUser } = { ...user, role, authUserId: verifiedSupabaseUser?.id || user.authUserId };
-
+  const { passwordHash: _passwordHash, ...safeUser } = { ...user, role };
   return res.json({ token, user: safeUser });
 });
 
@@ -920,7 +833,7 @@ apiRouter.post('/releases/:id/download-ticket', authMiddleware, (req: Authentica
   if (selectedStoredName && /^(remote:|r2:)/.test(selectedStoredName)) {
     filePath = selectedStoredName;
   } else if (selectedStoredName && !fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'The requested file is not available in local storage. Existing Supabase files will be migrated to R2 after bucket access is restored.' });
+    return res.status(404).json({ error: 'The requested file is not available in local storage. Legacy non-R2 files require a separately verified migration before download.' });
   } else if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'The requested file no longer exists on the server.' });
   }
@@ -1707,8 +1620,8 @@ apiRouter.get('/admin/diagnostic', authMiddleware, adminOnly, (_req: Authenticat
   const authOk = isConfigured ? remoteCheckAuth() : false;
 
   res.json({
-    persistenceMode: isConfigured ? 'supabase-postgres' : 'local-json',
-    supabaseConfigured: isConfigured,
+    persistenceMode: isConfigured ? 'neon-postgres' : 'local-json',
+    neonConfigured: isConfigured,
     databaseConfigured: dbOk,
     storageConfigured: storageOk,
     storageProvider: remoteStorageConfigured ? 'cloudflare-r2' : 'not-configured',
@@ -1723,8 +1636,8 @@ apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: Aut
   const authOk = isConfigured ? remoteCheckAuth() : false;
 
   res.json({
-    persistenceMode: isConfigured ? 'supabase-postgres' : 'local-json',
-    supabaseConfigured: isConfigured,
+    persistenceMode: isConfigured ? 'neon-postgres' : 'local-json',
+    neonConfigured: isConfigured,
     databaseConfigured: dbOk,
     storageConfigured: storageOk,
     storageProvider: remoteStorageConfigured ? 'cloudflare-r2' : 'not-configured',
@@ -1898,22 +1811,6 @@ apiRouter.post('/admin/clients/register', authMiddleware, adminOnly, async (req:
     country: country?.trim() || 'South Africa',
     createdAt: now,
   };
-
-  if (remotePersistenceConfigured) {
-    try {
-      const authUser = remoteFindAuthUserByEmail(newClient.email) || remoteCreateAuthUser(newClient.email, generateToken(), {
-        role: 'client',
-        name: newClient.name,
-        real_first_name: newClient.realFirstName || '',
-        real_surname: newClient.realSurname || '',
-        artist_name: newClient.artistName || newClient.name,
-        midama_user_id: newClient.id,
-      });
-      newClient.authUserId = authUser.id;
-    } catch (error: any) {
-      return res.status(502).json({ error: `Client was not registered because Supabase Auth could not create the account: ${error?.message || error}` });
-    }
-  }
 
   db.createUser(newClient);
 

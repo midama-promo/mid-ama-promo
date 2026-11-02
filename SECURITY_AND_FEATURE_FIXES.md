@@ -1,14 +1,8 @@
-# Mid-Ama Promo Distro — Security & Feature Fixes
+# Security and feature notes
 
-## Persistence protection
-No code in `server/remote.ts` was changed. The Supabase remote persistence mechanism, state storage, initialization, update logic, and storage/auth helpers remain untouched. No database reset, migration, table recreation, or destructive data operation was added.
-
-## Changes
-- Replaced forgeable `userId:random` application session tokens with signed, expiring HMAC tokens.
-- Restricted admin authorization to `remoabetswemolefi@gmail.com`.
-- `/api/assets/*` verifies signed sessions before resolving private user identity.
-- C-Line and P-Line are fixed to `[current year] Mid-Ama Promo`.
-- Artist Spotify/Apple Music URLs are required for release-level artists.
-- EP/Album song primary artist + Spotify + Apple Music profile links are required per song; added artists require their own links.
-- Integrated the new Mid-Ama Promo logo and browser favicon.
-- Preserved the existing 14-day rule, instant submission update, admin client-access feature, and Royalty Dashboard link.
+- Application sessions use signed, expiring HMAC tokens and an HTTP-only cookie.
+- Admin authorization is restricted server-side to the designated administrator email.
+- Private asset routes verify the signed application session and enforce ownership checks.
+- Email OTPs are six digits, ten-minute expiry, single-use, HMAC-hashed in Neon and protected by request/verification throttles.
+- Resend API keys, Neon credentials, R2 secrets and session secrets remain server-side.
+- The existing release metadata validation, Spotify/Apple Music profile requirements, C-Line/P-Line behavior, submission workflow, admin client-access features and royalty dashboard routes are retained.

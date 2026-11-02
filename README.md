@@ -1,63 +1,70 @@
-# Mid-Ama Promo
+# Mid-Ama Promo — Temporary Client Portal
 
-## Production persistence
+This project is a Node.js/Express + React portal. The original public pages, client dashboard, admin dashboard, release workflow and R2-compatible file handling are retained.
 
-The production build no longer relies on `data/db.json` as its authoritative database. A deployed server/container may be replaced at any time, so local files are not treated as durable production storage.
+## Providers
 
-Production uses:
+- **Render:** Node.js web service (deploy only after review and explicit approval).
+- **Neon PostgreSQL:** stores application state and hashed, expiring OTP records.
+- **Cloudflare R2:** private audio, artwork and document storage using S3-compatible signed requests.
+- **Resend:** delivers six-digit email OTP codes and existing notification emails.
 
-- **Supabase Postgres** for registered clients, releases, catalogue records, enquiries, notifications and metadata.
-- **Supabase Storage** (private bucket `midama-assets`) for artwork, MP3 masters and supporting documents.
-- A database-side optimistic concurrency function so two application instances cannot silently overwrite one another's registrations.
-- The bundled `data/db.json` / backups are used only as a **one-time seed source** when the hosted database is completely empty. Existing hosted data is never replaced by a seed file.
+Supabase client/auth/database dependencies have been removed from the temporary portal code.
 
-## First-time Supabase setup
+## Required environment variables
 
-1. Create a Supabase project.
-2. Open **SQL Editor** and run `supabase-schema.sql` from this repository.
-3. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the production server secrets.
-4. Redeploy the application.
-5. The first startup seeds the hosted database from the newest bundled recovery snapshot if the hosted database has no state row. After that, deployments never overwrite the hosted state with bundled seed data.
+Set these in Render only when you explicitly approve deployment. For local development, copy `.env.example` to `.env` and fill in test credentials.
 
-### Important security rule
+| Variable | Purpose |
+|---|---|
+| `NODE_ENV` | Set to `production` on Render. |
+| `DATABASE_URL` | Neon PostgreSQL connection string. Use the pooled connection string and keep it server-side. |
+| `MID_AMA_SESSION_SECRET` | Long random secret used to sign application sessions. |
+| `OTP_HASH_SECRET` | Optional separate long random secret for hashing OTP codes; defaults to the session secret. |
+| `RESEND_API_KEY` | Resend API key. |
+| `EMAIL_FROM` | Verified sender, e.g. `Mid-Ama Promo <no-reply@your-verified-domain>`. |
+| `ADMIN_NOTIFICATION_EMAIL` | Admin notification recipient. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID. |
+| `R2_BUCKET_NAME` | Private R2 bucket name. |
+| `R2_ACCESS_KEY_ID` | R2 S3 access key ID. |
+| `R2_SECRET_ACCESS_KEY` | R2 S3 secret access key. |
+| `APP_URL` | Public portal URL used in notification links. |
+| `PAYSTACK_SECRET_KEY` | Optional; required only for payment verification features. |
+| `DOWNLOAD_SECRET` | Secret for temporary download tickets if enabled by the existing workflow. |
+| `GEMINI_API_KEY` | Optional; only if the existing AI helper is used. |
 
-Never put `SUPABASE_SERVICE_ROLE_KEY` in React/Vite client code or expose it as a `VITE_*` variable. It must exist only in the server environment.
+## Database setup
 
-## Existing data in this package
+The application creates two tables automatically on first connection:
 
-The latest bundled recovery snapshot is preserved under `data/backups/`. It is used only when the new hosted database is empty. This is intended to recover the users/releases/catalogue that existed in the uploaded project before deployment.
+- `midama_app_state`: versioned JSONB application state. Updates use a version-checked compare-and-swap to avoid overwriting concurrent changes.
+- `midama_email_otps`: hashed OTPs with expiry and failed-attempt tracking.
 
-The previously deployed `test` account is not present in this ZIP's recovery snapshots, so this package cannot reconstruct that account unless it is recovered from the old hosting instance/provider backup.
+The app does **not** automatically import customer records from another provider or from backup files in this ZIP. Any future data migration must be separately reviewed and explicitly approved.
 
 ## Local development
 
-Without Supabase environment variables the project continues to use the local development database. Do not use that mode for production deployment.
+1. Install Node.js 20 or newer.
+2. Copy `.env.example` to `.env` and fill in Neon, Resend and R2 test credentials.
+3. Run `npm install`.
+4. Run `npm run dev`.
+5. Run `npm run build` to build the frontend.
 
-Run:
+For production, `npm start` starts the Express server and serves `dist`. Production startup refuses to run if the required Neon, session, Resend or R2 environment variables are missing. Do not use local JSON storage in production.
 
-```bash
-npm install
-npm run dev
-```
+## Security notes
 
-Production should always have both Supabase environment variables configured.
+- OTP codes are six digits, expire after ten minutes, are stored only as keyed hashes, and are single-use.
+- OTP requests are rate-limited by IP and email; verification attempts are limited.
+- Unknown email addresses receive the same public response as known addresses to reduce account enumeration.
+- The server assigns admin privileges only to the designated administrator email already defined in the application.
+- R2 objects remain private and are served through short-lived signed URLs after the existing application access checks.
+- Never expose `DATABASE_URL`, Resend keys, R2 secrets or session secrets in frontend variables.
 
-## Paystack billing and client plans
+## Legacy files
 
-See `PAYSTACK_INTEGRATION.md` for the Starter/Pro pricing, the server-side Paystack checkout/webhook setup, and production deployment steps. The application enforces monthly release and unique-artist limits on the server. Add `PAYSTACK_SECRET_KEY` only to the server hosting environment, configure `APP_URL`, and register `https://distro.midamapromo.co.za/api/payments/paystack/webhook` in the Paystack Dashboard before testing checkout.
+Any old file reference that points to a Supabase Storage object is not automatically imported or deleted. New uploads use R2. A legacy-asset migration requires separate access, object verification and approval; this package does not connect to Supabase.
 
+## Deployment boundary
 
-## Cloudflare R2 file storage
-
-The application now uses Cloudflare R2 as its primary object storage while retaining the existing Supabase project for Postgres persistence and Supabase Auth. New uploads are written to R2; they are not written to the restricted Supabase Storage bucket.
-
-Configure these server-only Render environment variables:
-
-- `R2_ACCOUNT_ID`
-- `R2_BUCKET_NAME`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-
-Current target bucket: `mid-ama-promo-files` (Cloudflare account ID: `dbcb7a7848e95ae62d3931846541a50c`). Never expose the R2 secret access key in frontend variables (`VITE_`), source control, or client-side code. The Cloudflare API token is not used for S3-compatible object access; use the R2 Access Key ID and Secret Access Key.
-
-Existing assets stored in Supabase Storage are deliberately not deleted or rewritten by this change. Legacy `remote:` references remain tagged as Supabase objects; new uploads use `r2:` references. After Supabase Storage access is restored on or after 29 November 2026, perform a separately verified migration of the old `midama-assets` bucket into R2 and update legacy references only after object-level verification. Do not delete the Supabase bucket until counts, sizes, checksums where available, and application downloads have been verified.
+This ZIP is a local deliverable. It does not deploy itself, change DNS, alter Render settings, create a Neon database, modify a Cloudflare bucket, or access production customer data.

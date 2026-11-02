@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const requestLoginOtp = async (email: string): Promise<string> => {
     const normalizedEmail = email.trim().toLowerCase();
     // One authoritative flow: sends ONE /api/auth/request-otp request to server,
-    // which syncs existing client and executes ONE Supabase signInWithOtp() call.
+    // which issues and emails one Resend OTP for a registered account.
     const serverRes = await api.requestLoginOtp(normalizedEmail);
     return serverRes.message || 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.';
   };
@@ -69,7 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const tokenStr = code.trim();
 
     // One authoritative flow: sends ONE /api/auth/verify-otp request to server,
-    // which verifies the OTP with Supabase and establishes the application session.
+    // which verifies the Resend OTP and establishes the application session.
     const res = await api.verifyLoginOtp(normalizedEmail, tokenStr);
     setUser(res.user);
     return res.user;

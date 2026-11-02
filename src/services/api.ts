@@ -56,8 +56,8 @@ class ApiService {
   }
 
   // Auth
-  async getAuthConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string }> {
-    return this.request<{ supabaseUrl: string; supabaseAnonKey: string }>('/api/auth/config');
+  async getAuthConfig(): Promise<{ provider: string; otpLength: number }> {
+    return this.request<{ provider: string; otpLength: number }>('/api/auth/config');
   }
 
   async requestLoginOtp(email: string): Promise<{ message: string }> {
