@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import fs from 'fs';
-import crypto from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
@@ -186,9 +186,9 @@ export function remoteUpdateState(expectedVersion: number, state: any): RemoteSt
   }
 }
 
-function sha256(value: string | Buffer): string { return crypto.createHash('sha256').update(value).digest('hex'); }
+function sha256(value: string | Buffer): string { return createHash('sha256').update(value).digest('hex'); }
 function hmac(key: Buffer | string, value: string, encoding?: 'hex' | 'base64' | 'base64url' | 'latin1'): any {
-  const result = crypto.createHmac('sha256', key).update(value);
+  const result = createHmac('sha256', key).update(value);
   return encoding ? result.digest(encoding) : result.digest();
 }
 function awsEncode(value: string): string { return encodeURIComponent(value).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`); }
