@@ -39,3 +39,22 @@ $$;
 
 -- Intentionally do not insert a 'main' row here. The application migration
 -- must initialize it from a verified export after explicit validation.
+
+ 
+-- Resend email OTP challenges. Store only a keyed hash of the code, never the
+-- six-digit code itself. One active challenge per normalized email address.
+-- The application must consume a challenge atomically after successful verification.
+CREATE TABLE IF NOT EXISTS public.midama_email_otps (
+  email text PRIMARY KEY,
+  code_hash text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_sent_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS midama_email_otps_expires_at_idx
+  ON public.midama_email_otps (expires_at);
+
+-- OTPs are server-only credentials. Do not grant access to browser roles.
+REVOKE ALL ON TABLE public.midama_email_otps FROM PUBLIC;
