@@ -17,6 +17,7 @@ import { ContactSection } from './components/public/ContactSection';
 import { Policies } from './components/public/Policies';
 import { Footer } from './components/public/Footer';
 import { ReleasesShowcase } from './components/public/ReleasesShowcase';
+import { ServiceNotice } from './components/common/ServiceNotice';
 
 // Modals & Dashboards
 import { AuthModal, AuthTabMode } from './components/auth/AuthModal';
@@ -259,6 +260,9 @@ function MainContent() {
           onGoToDashboard={handleGoToDashboard}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
         />
+
+        {/* Temporary service interruption notice */}
+        <ServiceNotice className="pt-4" />
 
         {/* Hero Section */}
         <Hero

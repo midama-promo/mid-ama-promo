@@ -31,8 +31,10 @@ import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdm
 import { requestEmailOtp, verifyEmailOtp, verifyAccessToken, isSupabaseConfigured } from './otp.ts';
 import {
   remotePersistenceConfigured,
+  remoteStorageConfigured,
   remoteUploadFile,
   remoteSignedUrl,
+  remoteSignedUrlForStoredName,
   encodeRemoteAssetPath,
   decodeRemoteAssetPath,
   remoteObjectPathFromStoredName,
@@ -664,7 +666,7 @@ apiRouter.post('/upload/artwork', authMiddleware, activeClientOnly, uploadArtwor
 
   let storedFilename = req.file.filename;
   let fileUrl = `/uploads/artwork/${req.file.filename}`;
-  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/artwork/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/artwork/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   res.json({
     success: true,
     message: 'Cover artwork uploaded successfully',
@@ -690,7 +692,7 @@ apiRouter.post('/upload/audio', authMiddleware, activeClientOnly, uploadAudio.si
 
   let storedFilename = req.file.filename;
   let fileUrl = `/uploads/audio/${req.file.filename}`;
-  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'audio/mpeg'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/audio/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'audio/mpeg'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   res.json({
     success: true,
     message: 'MP3 audio master uploaded successfully',
@@ -709,7 +711,7 @@ apiRouter.post('/upload/document', authMiddleware, activeClientOnly, uploadDocum
 
   let storedFilename = req.file.filename;
   let fileUrl = `/uploads/documents/${req.file.filename}`;
-  if (remotePersistenceConfigured) { const objectPath = `${req.user!.id}/documents/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `remote:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/documents/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'application/octet-stream'); try { fs.unlinkSync(req.file.path); } catch (_) {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   res.json({
     success: true,
     message: 'Supporting document uploaded successfully',
@@ -914,17 +916,11 @@ apiRouter.post('/releases/:id/download-ticket', authMiddleware, (req: Authentica
     }
   }
 
-  if (remotePersistenceConfigured) {
-    if (normAssetType === 'artwork') {
-      filePath = remoteObjectPathFromStoredName(release.storedArtworkFilename || '');
-    } else if (normAssetType === 'track') {
-      const selected = release.tracks.find(t => !trackId || t.id === trackId) || release.tracks[0];
-      filePath = remoteObjectPathFromStoredName(selected?.storedFilename || '');
-    } else if (normAssetType === 'document') {
-      const selected = documentId ? release.documents?.find(d => d.id === documentId) : release.documents?.[0];
-      if (selected?.storedFilename) filePath = remoteObjectPathFromStoredName(selected.storedFilename);
-    }
-    if (!filePath) return res.status(404).json({ error: 'The requested remote asset is not available.' });
+  const selectedStoredName = normAssetType === 'artwork' ? (release.storedArtworkFilename || '') : normAssetType === 'track' ? ((release.tracks.find(t => !trackId || t.id === trackId) || release.tracks[0])?.storedFilename || '') : (documentId ? (release.documents?.find(d => d.id === documentId)?.storedFilename || '') : (release.documents?.[0]?.storedFilename || ''));
+  if (selectedStoredName && /^(remote:|r2:)/.test(selectedStoredName)) {
+    filePath = selectedStoredName;
+  } else if (selectedStoredName && !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'The requested file is not available in local storage. Existing Supabase files will be migrated to R2 after bucket access is restored.' });
   } else if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'The requested file no longer exists on the server.' });
   }
@@ -990,12 +986,12 @@ apiRouter.get('/downloads/:token', (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Unauthorized. You cannot access another customer\'s files.' });
   }
 
-  if (remotePersistenceConfigured) {
-    if (!payload.filePath || payload.filePath.startsWith('/') || payload.filePath.includes('\\')) {
+  if (payload.filePath && /^(remote:|r2:)/.test(payload.filePath)) {
+    if (payload.filePath.startsWith('/') || payload.filePath.includes('\\')) {
       return res.status(404).json({ error: 'The requested remote asset is not configured.' });
     }
     try {
-      return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(payload.filePath), 120));
+      return res.redirect(remoteSignedUrlForStoredName(payload.filePath, 120));
     } catch (error: any) {
       return res.status(404).json({ error: `The requested file could not be retrieved from persistent storage: ${error?.message || 'storage error'}` });
     }
@@ -1034,7 +1030,7 @@ apiRouter.get('/releases/:id/download-artwork', (req: Request, res: Response) =>
     }
 
     const filename = release.storedArtworkFilename || path.basename(release.artworkUrl);
-    if (remotePersistenceConfigured && filename.startsWith('remote:')) return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(filename), 300));
+    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300));
     const filePath = path.join(ARTWORK_DIR, filename);
 
     if (fs.existsSync(filePath)) {
@@ -1062,7 +1058,7 @@ apiRouter.get('/releases/:id/download-track/:trackId', (req: Request, res: Respo
     if (!track) return res.status(404).json({ error: 'Track not found in this release.' });
 
     const filename = track.storedFilename || path.basename(track.fileUrl);
-    if (remotePersistenceConfigured && filename.startsWith('remote:')) return res.redirect(remoteSignedUrl(remoteObjectPathFromStoredName(filename), 300));
+    if (/^(remote:|r2:)/.test(filename)) return res.redirect(remoteSignedUrlForStoredName(filename, 300));
     const filePath = path.join(AUDIO_DIR, filename);
 
     if (fs.existsSync(filePath)) {
@@ -1098,7 +1094,7 @@ apiRouter.get('/releases/:id/download-document', (req: Request, res: Response) =
 
 // Hosted persistent assets. The object path is base64url encoded so slashes are safe in the URL.
 apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
-  if (!remotePersistenceConfigured) return res.status(404).json({ error: 'Hosted asset storage is not enabled.' });
+  if (!remoteStorageConfigured) return res.status(404).json({ error: 'Cloudflare R2 asset storage is not enabled.' });
   let objectPath: string;
   try { objectPath = decodeRemoteAssetPath(req.params.encoded); } catch (_) { return res.status(400).json({ error: 'Invalid asset path.' }); }
 
@@ -1106,19 +1102,20 @@ apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
   const token = getAuthTokenFromRequest(req);
   if (token) { const verified = verifySessionToken(token); if (verified) user = db.findUserById(verified.userId) || null; }
 
-  if (!user || user.role !== 'admin') {
-    const releaseOwns = db.getReleases().some(r => {
-      const paths = [r.storedArtworkFilename, ...(r.tracks || []).map(t => t.storedFilename), ...(r.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
-      return paths.some(p => remoteObjectPathFromStoredName(p) === objectPath) && (r.userId === user?.id || r.allowPublicShare);
-    });
-    const catalogueOwns = !!user && db.getCatalogue().some(c => {
-      const paths = [c.storedArtworkFilename, ...(c.tracks || []).map(t => t.storedFilename), ...(c.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
-      return paths.some(p => remoteObjectPathFromStoredName(p) === objectPath) && c.userId === user!.id;
-    });
-    if (!releaseOwns && !catalogueOwns) return res.status(403).json({ error: 'Access denied.' });
-  }
+  const releaseMatch = db.getReleases().flatMap(r => {
+    const paths = [r.storedArtworkFilename, ...(r.tracks || []).map(t => t.storedFilename), ...(r.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
+    const match = paths.find(p => remoteObjectPathFromStoredName(p) === objectPath);
+    return match ? [{ storedName: match, allowed: r.userId === user?.id || r.allowPublicShare || user?.role === 'admin' }] : [];
+  })[0];
+  const catalogueMatch = db.getCatalogue().flatMap(c => {
+    const paths = [c.storedArtworkFilename, ...(c.tracks || []).map(t => t.storedFilename), ...(c.documents || []).map(d => d.storedFilename)].filter(Boolean) as string[];
+    const match = paths.find(p => remoteObjectPathFromStoredName(p) === objectPath);
+    return match ? [{ storedName: match, allowed: c.userId === user?.id || user?.role === 'admin' }] : [];
+  })[0];
+  const matched = releaseMatch || catalogueMatch;
+  if (!matched || (!matched.allowed && (!user || user.role !== 'admin'))) return res.status(403).json({ error: 'Access denied.' });
 
-  try { return res.redirect(remoteSignedUrl(objectPath, 300)); }
+  try { return res.redirect(remoteSignedUrlForStoredName(matched.storedName, 300)); }
   catch (error: any) { return res.status(404).json({ error: `Asset unavailable: ${error?.message || 'storage error'}` }); }
 });
 
@@ -1706,7 +1703,7 @@ apiRouter.get('/public/share/:refNumber', (req: Request, res: Response) => {
 apiRouter.get('/admin/diagnostic', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
   const isConfigured = remotePersistenceConfigured;
   const dbOk = isConfigured ? remoteCheckDatabase() : false;
-  const storageOk = isConfigured ? remoteCheckStorage() : false;
+  const storageOk = remoteCheckStorage();
   const authOk = isConfigured ? remoteCheckAuth() : false;
 
   res.json({
@@ -1714,6 +1711,7 @@ apiRouter.get('/admin/diagnostic', authMiddleware, adminOnly, (_req: Authenticat
     supabaseConfigured: isConfigured,
     databaseConfigured: dbOk,
     storageConfigured: storageOk,
+    storageProvider: remoteStorageConfigured ? 'cloudflare-r2' : 'not-configured',
     authConfigured: authOk,
   });
 });
@@ -1721,7 +1719,7 @@ apiRouter.get('/admin/diagnostic', authMiddleware, adminOnly, (_req: Authenticat
 apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
   const isConfigured = remotePersistenceConfigured;
   const dbOk = isConfigured ? remoteCheckDatabase() : false;
-  const storageOk = isConfigured ? remoteCheckStorage() : false;
+  const storageOk = remoteCheckStorage();
   const authOk = isConfigured ? remoteCheckAuth() : false;
 
   res.json({
@@ -1729,6 +1727,7 @@ apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: Aut
     supabaseConfigured: isConfigured,
     databaseConfigured: dbOk,
     storageConfigured: storageOk,
+    storageProvider: remoteStorageConfigured ? 'cloudflare-r2' : 'not-configured',
     authConfigured: authOk,
     persistence: db.getPersistenceInfo(),
   });

@@ -4,7 +4,14 @@ import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_thread
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID || '';
+const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || '';
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID || '';
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY || '';
+const R2_ENDPOINT = R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '';
+const R2_REGION = 'auto';
 
+export const remoteStorageConfigured = Boolean(R2_ACCOUNT_ID && R2_BUCKET_NAME && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY);
 export const remotePersistenceConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 
 const workerSource = `
@@ -178,41 +185,82 @@ export function remoteUpdateState(expectedVersion: number, state: any): RemoteSt
   }
 }
 
+function sha256(value: string | Buffer): string { return crypto.createHash('sha256').update(value).digest('hex'); }
+function hmac(key: Buffer | string, value: string, encoding?: 'hex' | 'base64' | 'base64url' | 'latin1'): any {
+  const result = crypto.createHmac('sha256', key).update(value);
+  return encoding ? result.digest(encoding) : result.digest();
+}
+function awsEncode(value: string): string { return encodeURIComponent(value).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`); }
+function r2ObjectUrl(objectPath: string): URL {
+  if (!remoteStorageConfigured) throw new Error('Cloudflare R2 is not configured. Set R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.');
+  const key = objectPath.split('/').map(awsEncode).join('/');
+  return new URL(`${R2_ENDPOINT}/${awsEncode(R2_BUCKET_NAME)}/${key}`);
+}
+function signingKey(dateStamp: string): Buffer {
+  const kDate = hmac(`AWS4${R2_SECRET_ACCESS_KEY}`, dateStamp);
+  const kRegion = hmac(kDate, R2_REGION);
+  const kService = hmac(kRegion, 's3');
+  return hmac(kService, 'aws4_request');
+}
+function r2Authorization(method: string, url: URL, headers: Record<string, string>, payloadHash: string): Record<string, string> {
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const normalized = Object.fromEntries(Object.entries(headers).map(([k,v]) => [k.toLowerCase(), String(v).trim().replace(/\s+/g, ' ')]));
+  normalized.host = url.host;
+  normalized['x-amz-content-sha256'] = payloadHash;
+  normalized['x-amz-date'] = amzDate;
+  const signedHeaders = Object.keys(normalized).sort().join(';');
+  const canonicalHeaders = Object.keys(normalized).sort().map(k => `${k}:${normalized[k]}\n`).join('');
+  const canonicalRequest = [method, url.pathname, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${dateStamp}/${R2_REGION}/s3/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256(canonicalRequest)].join('\n');
+  const signature = hmac(signingKey(dateStamp), stringToSign, 'hex');
+  return { ...headers, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate, Authorization: `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY_ID}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}` };
+}
+
 export function remoteUploadFile(localPath: string, objectPath: string, contentType: string): void {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
+  if (!remoteStorageConfigured) throw new Error('Cloudflare R2 is not configured.');
   const data = fs.readFileSync(localPath);
-  requestSync(`${SUPABASE_URL}/storage/v1/object/midama-assets/${objectPath.split('/').map(encodeURIComponent).join('/')}`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': contentType || 'application/octet-stream', 'x-upsert': 'true' }),
-    body: data,
-  });
+  const url = r2ObjectUrl(objectPath);
+  const headers = r2Authorization('PUT', url, { 'Content-Type': contentType || 'application/octet-stream' }, sha256(data));
+  requestSync(url.toString(), { method: 'PUT', headers, body: data });
 }
 
 export function remoteSignedUrl(objectPath: string, expiresInSeconds = 300): string {
-  if (!remotePersistenceConfigured) throw new Error('Supabase persistence is not configured.');
-  const result = requestSync(`${SUPABASE_URL}/storage/v1/object/sign/midama-assets/${objectPath.split('/').map(encodeURIComponent).join('/')}`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-    body: JSON.stringify({ expiresIn: expiresInSeconds }),
-  });
-  const data = JSON.parse(result.text || '{}');
-  const signed = data.signedURL || data.signedUrl || data.path;
-  if (!signed) throw new Error('Supabase did not return a signed asset URL.');
-  return signed.startsWith('http') ? signed : `${SUPABASE_URL}/storage/v1${signed}`;
+  if (!remoteStorageConfigured) throw new Error('Cloudflare R2 is not configured.');
+  const url = r2ObjectUrl(objectPath);
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const scope = `${dateStamp}/${R2_REGION}/s3/aws4_request`;
+  const params: Record<string, string> = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${R2_ACCESS_KEY_ID}/${scope}`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(Math.max(1, Math.min(604800, expiresInSeconds))),
+    'X-Amz-SignedHeaders': 'host',
+  };
+  const canonicalQuery = Object.keys(params).sort().map(k => `${awsEncode(k)}=${awsEncode(params[k])}`).join('&');
+  const canonicalRequest = ['GET', url.pathname, canonicalQuery, `host:${url.host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256(canonicalRequest)].join('\n');
+  params['X-Amz-Signature'] = hmac(signingKey(dateStamp), stringToSign, 'hex');
+  const finalQuery = Object.keys(params).sort().map(k => `${awsEncode(k)}=${awsEncode(params[k])}`).join('&');
+  return `${url.origin}${url.pathname}?${finalQuery}`;
 }
 
 export function remoteEnsureBucket(): void {
-  if (!remotePersistenceConfigured) return;
+  if (!remoteStorageConfigured) {
+    console.warn('[R2 STORAGE] R2 is not configured; uploads will not be persisted remotely.');
+    return;
+  }
   try {
-    requestSync(`${SUPABASE_URL}/storage/v1/bucket`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      body: JSON.stringify({ id: 'midama-assets', name: 'midama-assets', public: false }),
-    });
+    const url = new URL(`${R2_ENDPOINT}/${awsEncode(R2_BUCKET_NAME)}`);
+    const headers = r2Authorization('HEAD', url, {}, sha256(''));
+    requestSync(url.toString(), { method: 'HEAD', headers });
+    console.log(`[R2 STORAGE] Connected to bucket ${R2_BUCKET_NAME}.`);
   } catch (error: any) {
-    if (!String(error?.message || '').includes('already exists')) {
-      console.warn('[REMOTE STORAGE] Bucket check/create:', error?.message || error);
-    }
+    console.error('[R2 STORAGE] Bucket connectivity check failed:', error?.message || error);
   }
 }
 
@@ -281,15 +329,13 @@ export function remoteCheckDatabase(): boolean {
 }
 
 export function remoteCheckStorage(): boolean {
-  if (!remotePersistenceConfigured) return false;
+  if (!remoteStorageConfigured) return false;
   try {
-    const result = requestSync(`${SUPABASE_URL}/storage/v1/bucket/midama-assets`, {
-      headers: authHeaders({ Accept: 'application/json' }),
-    });
-    return Boolean(result && result.ok);
-  } catch (_) {
-    return false;
-  }
+    const url = new URL(`${R2_ENDPOINT}/${awsEncode(R2_BUCKET_NAME)}`);
+    const headers = r2Authorization('HEAD', url, {}, sha256(''));
+    requestSync(url.toString(), { method: 'HEAD', headers });
+    return true;
+  } catch (_) { return false; }
 }
 
 export function remoteCheckAuth(): boolean {
@@ -305,7 +351,19 @@ export function remoteCheckAuth(): boolean {
 }
 
 export function remoteObjectPathFromStoredName(storedName: string): string {
-  return storedName.replace(/^remote:/, '');
+  return storedName.replace(/^(?:remote:|r2:)/, '');
+}
+
+export function isR2StoredName(storedName: string): boolean { return storedName.startsWith('r2:'); }
+
+export function remoteSignedUrlForStoredName(storedName: string, expiresInSeconds = 300): string {
+  const objectPath = remoteObjectPathFromStoredName(storedName);
+  if (isR2StoredName(storedName)) return remoteSignedUrl(objectPath, expiresInSeconds);
+  if (!remotePersistenceConfigured) throw new Error('Legacy Supabase Storage is unavailable until the bucket restriction is lifted.');
+  const result = requestSync(`${SUPABASE_URL}/storage/v1/object/sign/midama-assets/${objectPath.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }), body: JSON.stringify({ expiresIn: expiresInSeconds }) });
+  const data = JSON.parse(result.text || '{}'); const signed = data.signedURL || data.signedUrl || data.path;
+  if (!signed) throw new Error('Supabase did not return a signed asset URL.');
+  return signed.startsWith('http') ? signed : `${SUPABASE_URL}/storage/v1${signed}`;
 }
 
 export function encodeRemoteAssetPath(objectPath: string): string {

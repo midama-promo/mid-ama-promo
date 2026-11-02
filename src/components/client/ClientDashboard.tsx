@@ -31,6 +31,7 @@ import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { RoyaltyWithdrawalModal } from './RoyaltyWithdrawalModal';
 import { PlanManagement } from './PlanManagement';
+import { ServiceNotice } from '../common/ServiceNotice';
 
 interface ClientDashboardProps {
   onOpenUpload: () => void;
@@ -282,6 +283,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Temporary service interruption notice visible to every client */}
+      <ServiceNotice className="pt-5" />
 
       {isPaidDashboard && !isAccountRestricted && (
         <div className={`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-5`}>

@@ -7,6 +7,7 @@ import { apiRouter, getAuthTokenFromRequest } from './server/routes.ts';
 import { db, canAccessUploadedFile, UPLOADS_DIR, isProduction } from './server/db.ts';
 import {
   remotePersistenceConfigured,
+  remoteStorageConfigured,
   remoteEnsureBucket,
   remoteUploadFile,
   remoteFindAuthUserByEmail,
@@ -16,6 +17,11 @@ import {
 // CRITICAL SAFETY REQUIREMENT:
 // If running in production and Supabase environment variables are missing,
 // fail loudly and immediately. Silent fallback to local JSON database is strictly forbidden in production.
+if (isProduction && !remoteStorageConfigured) {
+  console.error('[FATAL R2 CONFIGURATION ERROR] Production requires R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY. Configure them in Render before deployment.');
+  process.exit(1);
+}
+
 if (isProduction && !remotePersistenceConfigured) {
   const missing = [];
   if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
@@ -63,16 +69,16 @@ function syncClientAuthUsers() {
 }
 
 function migrateLocalAssetsToHostedStorage() {
-  if (!remotePersistenceConfigured) return;
+  if (!remoteStorageConfigured) return;
   const snapshot = db.getSnapshot();
   let migrated = 0;
 
   const migrateFile = (localPath: string, userId: string, folder: string, currentStored: string | undefined, update: (stored: string, url: string) => void) => {
-    if (!currentStored || currentStored.startsWith('remote:') || !fs.existsSync(localPath)) return;
+    if (!currentStored || currentStored.startsWith('remote:') || currentStored.startsWith('r2:') || !fs.existsSync(localPath)) return;
     const objectPath = `${userId}/migrated/${folder}/${crypto.randomUUID()}-${path.basename(localPath)}`;
     const mime = folder === 'audio' ? 'audio/mpeg' : folder === 'artwork' ? 'image/jpeg' : 'application/octet-stream';
     remoteUploadFile(localPath, objectPath, mime);
-    update(`remote:${objectPath}`, `/api/assets/${Buffer.from(objectPath, 'utf8').toString('base64url')}`);
+    update(`r2:${objectPath}`, `/api/assets/${Buffer.from(objectPath, 'utf8').toString('base64url')}`);
     migrated++;
   };
 
@@ -153,7 +159,8 @@ app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: 
 
 // Start server with Vite middleware in dev or static files in production
 async function startServer() {
-  if (remotePersistenceConfigured) { remoteEnsureBucket(); syncClientAuthUsers(); migrateLocalAssetsToHostedStorage(); }
+  if (remoteStorageConfigured) { remoteEnsureBucket(); migrateLocalAssetsToHostedStorage(); }
+  if (remotePersistenceConfigured) syncClientAuthUsers();
   if (!isProduction) {
     const { createServer } = await import('vite');
     const vite = await createServer({

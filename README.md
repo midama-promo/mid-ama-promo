@@ -45,3 +45,19 @@ Production should always have both Supabase environment variables configured.
 ## Paystack billing and client plans
 
 See `PAYSTACK_INTEGRATION.md` for the Starter/Pro pricing, the server-side Paystack checkout/webhook setup, and production deployment steps. The application enforces monthly release and unique-artist limits on the server. Add `PAYSTACK_SECRET_KEY` only to the server hosting environment, configure `APP_URL`, and register `https://distro.midamapromo.co.za/api/payments/paystack/webhook` in the Paystack Dashboard before testing checkout.
+
+
+## Cloudflare R2 file storage
+
+The application now uses Cloudflare R2 as its primary object storage while retaining the existing Supabase project for Postgres persistence and Supabase Auth. New uploads are written to R2; they are not written to the restricted Supabase Storage bucket.
+
+Configure these server-only Render environment variables:
+
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET_NAME`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+
+Current target bucket: `mid-ama-promo-files` (Cloudflare account ID: `dbcb7a7848e95ae62d3931846541a50c`). Never expose the R2 secret access key in frontend variables (`VITE_`), source control, or client-side code. The Cloudflare API token is not used for S3-compatible object access; use the R2 Access Key ID and Secret Access Key.
+
+Existing assets stored in Supabase Storage are deliberately not deleted or rewritten by this change. Legacy `remote:` references remain tagged as Supabase objects; new uploads use `r2:` references. After Supabase Storage access is restored on or after 29 November 2026, perform a separately verified migration of the old `midama-assets` bucket into R2 and update legacy references only after object-level verification. Do not delete the Supabase bucket until counts, sizes, checksums where available, and application downloads have been verified.
