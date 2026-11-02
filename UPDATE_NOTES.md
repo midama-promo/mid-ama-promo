@@ -17,3 +17,12 @@ Validation note: dependencies could not be installed in this environment because
 8. Release form: clients can select saved artists from clickable artist chips or name suggestions. Selecting a saved artist restores its Spotify and Apple Music links / creation-request states. Newly submitted artists and profile associations become available in later submissions. Artists are private to the account that submitted them.
 
 Validation for this update: 38 TypeScript/TSX files passed a syntax/transpilation check. `npm install` timed out again, so the full Vite build and dependency-backed TypeScript type-check could not be run. No live Neon or browser tests were run in this environment.
+
+## Legacy Client Catalogue & Royalty Withdrawals
+
+- Admins can create a standalone legacy catalogue record for a selected client using the release title, artist name(s), original release date, and royalty amount in ZAR.
+- Cover artwork and master MP3 uploads remain optional; neither is required to create a catalogue record.
+- Clients see their own legacy catalogue entries, including release dates and assigned royalty amounts, in their dashboard.
+- Standalone catalogue royalties are included in the client's royalty balance alongside royalties assigned to portal releases. Linked catalogue entries are not double-counted.
+- Clients can request any positive withdrawal amount up to their available balance. Pending requests reserve funds; paid requests deduct funds; rejected requests release the reserved balance.
+- Withdrawal requests remain manageable by administrators in the existing Royalties & Withdrawals tab.

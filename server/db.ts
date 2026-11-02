@@ -196,6 +196,8 @@ export interface CatalogueEntry {
   isrc?: string;
   upc?: string;
   catalogueReleaseDate?: string;
+  /** Total royalty amount assigned to this legacy catalogue record, in ZAR. */
+  royaltyAmount?: number;
   previouslyReleased: boolean;
   previousReleaseDetails?: string;
   cLine?: string;
@@ -502,6 +504,13 @@ class Database {
           },
         ];
       }
+    }
+
+    for (const entry of catalogue) {
+      if (typeof entry.royaltyAmount !== 'number' || !Number.isFinite(entry.royaltyAmount) || entry.royaltyAmount < 0) entry.royaltyAmount = 0;
+      if (!Array.isArray(entry.primaryArtists)) entry.primaryArtists = [];
+      if (!Array.isArray(entry.featuredArtists)) entry.featuredArtists = [];
+      if (!Array.isArray(entry.tracks)) entry.tracks = [];
     }
 
     return {
@@ -919,9 +928,15 @@ class Database {
   createWithdrawal(withdrawal: WithdrawalRequest): WithdrawalRequest {
     return this.mutate((data) => {
       data.withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals : [];
-      const totalEarnings = data.releases
+      const releaseEarnings = data.releases
         .filter(r => r.userId === withdrawal.userId)
         .reduce((sum, r) => sum + Math.max(0, Number(r.royaltyAmount || 0)), 0);
+      // Standalone legacy catalogue entries contribute royalties too. Linked entries
+      // are excluded here because their release royalty is already counted above.
+      const catalogueEarnings = (data.catalogue || [])
+        .filter(entry => entry.userId === withdrawal.userId && !entry.releaseId)
+        .reduce((sum, entry) => sum + Math.max(0, Number(entry.royaltyAmount || 0)), 0);
+      const totalEarnings = releaseEarnings + catalogueEarnings;
       const reserved = data.withdrawals
         .filter(w => w.userId === withdrawal.userId && w.status === 'pending')
         .reduce((sum, w) => sum + Number(w.amount || 0), 0);

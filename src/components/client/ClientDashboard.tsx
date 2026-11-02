@@ -502,11 +502,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-white truncate">{entry.title}</h3>
                       <p className="text-xs text-neutral-400 truncate">{(entry.primaryArtists || []).join(', ')}</p>
-                      <p className="text-[10px] text-neutral-500 mt-1">{entry.genre} · {entry.distributionStatus}</p>
+                      <p className="text-[10px] text-neutral-500 mt-1">Released: {entry.catalogueReleaseDate ? new Date(`${entry.catalogueReleaseDate}T00:00:00`).toLocaleDateString() : '—'}</p>
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-neutral-800 grid grid-cols-2 gap-2 text-[10px] font-mono text-neutral-500">
-                    <span>ISRC: {entry.isrc || '—'}</span><span>UPC: {entry.upc || '—'}</span>
+                  <div className="mt-3 pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-neutral-500">Royalty earnings</span><strong className="text-sm text-emerald-400">R{Number(entry.royaltyAmount || 0).toFixed(2)}</strong>
                   </div>
                 </div>
               ))}

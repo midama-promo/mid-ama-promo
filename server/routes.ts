@@ -1688,7 +1688,12 @@ apiRouter.get('/admin/persistence-health', authMiddleware, adminOnly, (_req: Aut
 
 function calculateRoyaltySummary(userId: string) {
   const releases = db.getReleasesByUserId(userId);
-  const totalEarnings = releases.reduce((sum, r) => sum + Math.max(0, Number(r.royaltyAmount || 0)), 0);
+  const releaseEarnings = releases.reduce((sum, r) => sum + Math.max(0, Number(r.royaltyAmount || 0)), 0);
+  // Only standalone catalogue records are added; linked portal releases are already counted.
+  const catalogueEarnings = db.getCatalogueByUserId(userId)
+    .filter(entry => !entry.releaseId)
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.royaltyAmount || 0)), 0);
+  const totalEarnings = releaseEarnings + catalogueEarnings;
   const withdrawals = db.getWithdrawalsByUserId(userId);
   const pendingAmount = withdrawals.filter(w => w.status === 'pending').reduce((sum, w) => sum + w.amount, 0);
   const paidAmount = withdrawals.filter(w => w.status === 'paid').reduce((sum, w) => sum + w.amount, 0);
@@ -2047,10 +2052,10 @@ apiRouter.post('/admin/backup/import', authMiddleware, adminOnly, backupUpload.s
 
 apiRouter.get('/catalogue', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
-  const entries = db.getCatalogueByUserId(user.id).map(entry => ({
-    ...entry,
-    release: entry.releaseId ? db.findReleaseById(entry.releaseId) || null : null,
-  }));
+  const entries = db.getCatalogueByUserId(user.id).map(entry => {
+    const release = entry.releaseId ? db.findReleaseById(entry.releaseId) || null : null;
+    return { ...entry, royaltyAmount: entry.royaltyAmount ?? release?.royaltyAmount ?? 0, catalogueReleaseDate: entry.catalogueReleaseDate || release?.targetReleaseDate, release };
+  });
   res.json({ entries });
 });
 
@@ -2101,6 +2106,7 @@ function buildCatalogueEntryPayload(body: any, client: User, adminId: string, ex
     isrc: body.isrc !== undefined ? String(body.isrc || '').trim() || undefined : existing?.isrc,
     upc: body.upc !== undefined ? String(body.upc || '').trim() || undefined : existing?.upc,
     catalogueReleaseDate: body.catalogueReleaseDate !== undefined ? String(body.catalogueReleaseDate || '').trim() || undefined : existing?.catalogueReleaseDate,
+    royaltyAmount: body.royaltyAmount !== undefined ? Math.round(Math.max(0, Number(body.royaltyAmount || 0)) * 100) / 100 : Number(existing?.royaltyAmount || 0),
     previouslyReleased: body.previouslyReleased !== undefined ? !!body.previouslyReleased : (existing?.previouslyReleased ?? true),
     previousReleaseDetails: body.previousReleaseDetails !== undefined ? String(body.previousReleaseDetails || '').trim() || undefined : existing?.previousReleaseDetails,
     cLine: `${new Date().getFullYear()} Mid-Ama Promo`,
@@ -2122,7 +2128,8 @@ function buildCatalogueEntryPayload(body: any, client: User, adminId: string, ex
 
   if (!entry.title) throw new Error('Song/release title is required.');
   if (!entry.primaryArtists.length) throw new Error('At least one primary artist is required.');
-  if (!entry.genre) throw new Error('Genre is required.');
+  if (!entry.catalogueReleaseDate) throw new Error('Original release date is required.');
+  if (!Number.isFinite(entry.royaltyAmount) || entry.royaltyAmount < 0) throw new Error('Enter a valid non-negative royalty amount.');
   return entry;
 }
 
@@ -2161,6 +2168,8 @@ apiRouter.get('/admin/catalogue', authMiddleware, adminOnly, (_req: Authenticate
       artworkUrl: entry.artworkUrl || release.artworkUrl,
       artworkFilename: entry.artworkFilename || release.artworkFilename,
       tracks: entry.tracks?.length ? entry.tracks : release.tracks,
+      royaltyAmount: entry.royaltyAmount ?? release.royaltyAmount ?? 0,
+      catalogueReleaseDate: entry.catalogueReleaseDate || release.targetReleaseDate,
     } : entry;
     return { ...merged, release, client: clientUser ? client : null };
   }).filter(entry => entry.client);
@@ -2220,6 +2229,10 @@ apiRouter.patch('/admin/catalogue/:id', authMiddleware, adminOnly, (req: Authent
     if (!client || client.role !== 'client') return res.status(404).json({ error: 'Catalogue client no longer exists.' });
     const entry = buildCatalogueEntryPayload(req.body, client, existing.addedBy, existing);
     db.updateCatalogueEntry(existing.id, entry);
+    // If this catalogue row is linked to a portal release, keep its single source of truth in sync.
+    if (existing.releaseId && req.body?.royaltyAmount !== undefined) {
+      db.updateRelease(existing.releaseId, { royaltyAmount: entry.royaltyAmount || 0 });
+    }
     res.json({ message: 'Catalogue entry updated.', entry });
   } catch (error: any) {
     res.status(400).json({ error: error?.message || 'Could not update catalogue entry.' });

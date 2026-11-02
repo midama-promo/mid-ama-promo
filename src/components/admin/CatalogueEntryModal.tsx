@@ -31,6 +31,7 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
   const [isrc, setIsrc] = useState('');
   const [upc, setUpc] = useState('');
   const [catalogueReleaseDate, setCatalogueReleaseDate] = useState('');
+  const [royaltyAmount, setRoyaltyAmount] = useState('0.00');
   const currentCopyright = `${new Date().getFullYear()} Mid-Ama Promo`;
   const [cLine] = useState(currentCopyright);
   const [pLine] = useState(currentCopyright);
@@ -62,6 +63,7 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
     setIsrc(entry?.isrc || '');
     setUpc(entry?.upc || '');
     setCatalogueReleaseDate(entry?.catalogueReleaseDate || '');
+    setRoyaltyAmount(Number(entry?.royaltyAmount || 0).toFixed(2));
     setPreviousReleaseDetails(entry?.previousReleaseDetails || entry?.release?.previousReleaseDetails || '');
     setNotes(entry?.notes || '');
     setDistributionStatus(entry?.distributionStatus || 'Not Queued');
@@ -81,8 +83,10 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
       setError(null);
       if (!clientId) throw new Error('Select a registered client.');
       if (!title.trim()) throw new Error('Song title is required.');
-      if (!primaryArtists.trim()) throw new Error('At least one primary artist is required.');
-      if (!genre.trim()) throw new Error('Genre is required.');
+      if (!primaryArtists.trim()) throw new Error('At least one artist name is required.');
+      if (!catalogueReleaseDate) throw new Error('Original release date is required.');
+      const normalizedRoyalty = Number(royaltyAmount);
+      if (!Number.isFinite(normalizedRoyalty) || normalizedRoyalty < 0) throw new Error('Enter a valid royalty amount.');
 
       let artworkData: any = {};
       let trackData: any[] = [];
@@ -141,6 +145,7 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
         isrc: isrc.trim(),
         upc: upc.trim(),
         catalogueReleaseDate: catalogueReleaseDate || undefined,
+        royaltyAmount: Math.round(normalizedRoyalty * 100) / 100,
         previouslyReleased: true,
         previousReleaseDetails: previousReleaseDetails.trim(),
         cLine: cLine.trim(),
@@ -172,7 +177,7 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
         <div className="sticky top-0 z-10 bg-neutral-950/95 backdrop-blur border-b border-neutral-800 p-5 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-white">{entry ? 'Edit Catalogue Record' : 'Create Catalogue Record'}</h2>
-            <p className="text-xs text-neutral-500 mt-1">Use this for music released before the client portal existed.</p>
+            <p className="text-xs text-neutral-500 mt-1">Add a previously released song, its release date and royalty amount. Artwork and MP3 are optional.</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-900"><X className="w-5 h-5" /></button>
         </div>
@@ -192,8 +197,9 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
             <label className="space-y-2"><span className="label">Primary Artist(s) *</span><input value={primaryArtists} onChange={e => setPrimaryArtists(e.target.value)} placeholder="Comma separated" className="field" /></label>
             <label className="space-y-2"><span className="label">Featured Artist(s)</span><input value={featuredArtists} onChange={e => setFeaturedArtists(e.target.value)} placeholder="Comma separated" className="field" /></label>
             <label className="space-y-2"><span className="label">Release Type</span><select value={releaseType} onChange={e => setReleaseType(e.target.value)} className="field"><option>Single</option><option>EP</option><option>Album</option></select></label>
-            <label className="space-y-2"><span className="label">Original Release Date</span><input type="date" value={catalogueReleaseDate} onChange={e => setCatalogueReleaseDate(e.target.value)} className="field" /></label>
-            <label className="space-y-2"><span className="label">Genre *</span><input value={genre} onChange={e => setGenre(e.target.value)} className="field" /></label>
+            <label className="space-y-2"><span className="label">Original Release Date *</span><input required type="date" value={catalogueReleaseDate} onChange={e => setCatalogueReleaseDate(e.target.value)} className="field" /></label>
+            <label className="space-y-2"><span className="label">Royalty Amount (ZAR) *</span><input required type="number" min="0" step="0.01" value={royaltyAmount} onChange={e => setRoyaltyAmount(e.target.value)} className="field" /></label>
+            <label className="space-y-2"><span className="label">Genre (optional)</span><input value={genre} onChange={e => setGenre(e.target.value)} className="field" /></label>
             <label className="space-y-2"><span className="label">Sub-Genre</span><input value={subGenre} onChange={e => setSubGenre(e.target.value)} className="field" /></label>
             <label className="space-y-2"><span className="label">Language</span><input value={language} onChange={e => setLanguage(e.target.value)} className="field" /></label>
             <label className="space-y-2"><span className="label">ISRC</span><input value={isrc} onChange={e => setIsrc(e.target.value)} className="field" /></label>
@@ -205,8 +211,8 @@ export const CatalogueEntryModal: React.FC<CatalogueEntryModalProps> = ({
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <label className="space-y-2"><span className="label">Cover Artwork</span><div className="filebox"><ImageIcon className="w-4 h-4" /><input type="file" accept="image/jpeg,image/png" onChange={e => setArtwork(e.target.files?.[0] || null)} />{artwork?.name || (entry?.artworkFilename ? `Current: ${entry.artworkFilename}` : 'Choose image')}</div></label>
-            <label className="space-y-2"><span className="label">Master MP3</span><div className="filebox"><Music2 className="w-4 h-4" /><input type="file" accept="audio/mpeg,audio/mp3,.mp3" onChange={e => setTrack(e.target.files?.[0] || null)} />{track?.name || (entry?.tracks?.[0]?.filename ? `Current: ${entry.tracks[0].filename}` : 'Choose MP3')}</div></label>
+            <label className="space-y-2"><span className="label">Cover Artwork (optional)</span><div className="filebox"><ImageIcon className="w-4 h-4" /><input type="file" accept="image/jpeg,image/png" onChange={e => setArtwork(e.target.files?.[0] || null)} />{artwork?.name || (entry?.artworkFilename ? `Current: ${entry.artworkFilename}` : 'Choose image')}</div></label>
+            <label className="space-y-2"><span className="label">Master MP3 (optional)</span><div className="filebox"><Music2 className="w-4 h-4" /><input type="file" accept="audio/mpeg,audio/mp3,.mp3" onChange={e => setTrack(e.target.files?.[0] || null)} />{track?.name || (entry?.tracks?.[0]?.filename ? `Current: ${entry.tracks[0].filename}` : 'Choose MP3')}</div></label>
             <label className="space-y-2"><span className="label">Supporting Document</span><div className="filebox"><UploadCloud className="w-4 h-4" /><input type="file" accept=".pdf,.doc,.docx,.txt,.csv,.rtf" onChange={e => setDocument(e.target.files?.[0] || null)} />{document?.name || 'Optional document'}</div></label>
           </section>
 
