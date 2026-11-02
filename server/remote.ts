@@ -187,7 +187,7 @@ export function remoteUpdateState(expectedVersion: number, state: any): RemoteSt
 }
 
 function sha256(value: string | Buffer): string { return createHash('sha256').update(value).digest('hex'); }
-function hmac(key: Buffer | string, value: string, encoding?: 'hex' | 'base64' | 'base64url' | 'latin1'): any {
+function hmac(key: Buffer | string, value: string, encoding?: 'hex' | 'base64' | 'base64url'): any {
   const result = createHmac('sha256', key).update(value);
   return encoding ? result.digest(encoding) : result.digest();
 }
