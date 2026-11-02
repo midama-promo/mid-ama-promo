@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import fs from 'fs';
+import crypto from 'node:crypto';
 import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
