@@ -20,6 +20,8 @@ export interface User {
   realFirstName?: string;
   realSurname?: string;
   artistName?: string;
+  spotifyProfileClaimed?: boolean;
+  spotifyProfileClaimedAt?: string | null;
   role: 'admin' | 'client';
   passwordHash: string;
   status: 'active' | 'pending_activation' | 'disabled';
