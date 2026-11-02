@@ -188,7 +188,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   ]);
   const [rememberedPrimaryArtists, setRememberedPrimaryArtists] = useState<string[]>([]);
   useEffect(() => {
-    try { const saved = JSON.parse(localStorage.getItem('midama-primary-artists-v1') || '[]'); setRememberedPrimaryArtists(Array.isArray(saved) ? saved.filter((v): v is string => typeof v === 'string' && v.trim()) : []); } catch { setRememberedPrimaryArtists([]); }
+    try { const saved = JSON.parse(localStorage.getItem('midama-primary-artists-v1') || '[]'); setRememberedPrimaryArtists(Array.isArray(saved) ? saved.filter((v): v is string => typeof v === 'string' && Boolean(v.trim())) : []); } catch { setRememberedPrimaryArtists([]); }
   }, []);
   useEffect(() => {
     const ownName = (user?.name || '').trim().toLocaleLowerCase();
