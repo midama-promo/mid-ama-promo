@@ -184,6 +184,10 @@ class ApiService {
     return this.request('/api/artists');
   }
 
+  async saveArtist(artist: Partial<ArtistCredit>): Promise<{ artist: ArtistCredit; artists: ArtistCredit[] }> {
+    return this.request('/api/artists', { method: 'POST', body: JSON.stringify(artist) });
+  }
+
   // Releases
   async getReleases(): Promise<{ releases: Release[] }> {
     return this.request<{ releases: Release[] }>('/api/releases');

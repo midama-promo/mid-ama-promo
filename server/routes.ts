@@ -1039,6 +1039,44 @@ apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // CLIENT ARTIST LIBRARY — private to the authenticated client
 // ----------------------------------------------------
+apiRouter.post('/artists', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role !== 'client') return res.status(403).json({ error: 'This endpoint is for client accounts.' });
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Artist name is required.' });
+  const spotifyProfileUrl = String(req.body?.spotifyProfileUrl || '').trim();
+  const appleMusicProfileUrl = String(req.body?.appleMusicProfileUrl || '').trim();
+  const spotifyProfileCreateRequested = !!req.body?.spotifyProfileCreateRequested;
+  const appleMusicProfileCreateRequested = !!req.body?.appleMusicProfileCreateRequested;
+  const validUrl = (value: string) => {
+    if (!value) return true;
+    try { const parsed = new URL(value); return parsed.protocol === 'http:' || parsed.protocol === 'https:'; }
+    catch { return false; }
+  };
+  if (!validUrl(spotifyProfileUrl) || !validUrl(appleMusicProfileUrl)) {
+    return res.status(400).json({ error: 'Artist profile links must be valid HTTP or HTTPS URLs.' });
+  }
+  if ((!spotifyProfileUrl && !spotifyProfileCreateRequested) || (!appleMusicProfileUrl && !appleMusicProfileCreateRequested)) {
+    return res.status(400).json({ error: 'Provide an existing Spotify and Apple Music profile link, or request creation for each missing profile.' });
+  }
+  const library = Array.isArray(user.artistLibrary) ? [...user.artistLibrary] : [];
+  const existingIndex = library.findIndex((artist: any) => String(artist.name || '').trim().toLocaleLowerCase() === name.toLocaleLowerCase());
+  const previous = existingIndex >= 0 ? library[existingIndex] : {};
+  const artist = {
+    ...previous,
+    id: previous.id || `artist_${crypto.randomUUID()}`,
+    name: previous.name || name,
+    spotifyProfileUrl: spotifyProfileCreateRequested ? undefined : (spotifyProfileUrl || previous.spotifyProfileUrl),
+    appleMusicProfileUrl: appleMusicProfileCreateRequested ? undefined : (appleMusicProfileUrl || previous.appleMusicProfileUrl),
+    spotifyProfileCreateRequested: spotifyProfileCreateRequested || (!!previous.spotifyProfileCreateRequested && !spotifyProfileUrl),
+    appleMusicProfileCreateRequested: appleMusicProfileCreateRequested || (!!previous.appleMusicProfileCreateRequested && !appleMusicProfileUrl),
+  };
+  if (existingIndex >= 0) library[existingIndex] = artist as any;
+  else library.push(artist as any);
+  db.updateUser(user.id, { artistLibrary: library });
+  return res.status(200).json({ artist, artists: library });
+});
+
 apiRouter.get('/artists', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
   if (req.user!.role !== 'client') return res.status(403).json({ error: 'This endpoint is for client accounts.' });
   const artists = Array.isArray(req.user!.artistLibrary) ? req.user!.artistLibrary : [];

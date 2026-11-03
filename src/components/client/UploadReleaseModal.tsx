@@ -194,20 +194,25 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       .catch((error) => console.warn('Could not load saved artist library:', error));
     return () => { cancelled = true; };
   }, [isOpen, user?.id]);
+  const [artistDialogOpen, setArtistDialogOpen] = useState(false);
+  const [artistDialogRole, setArtistDialogRole] = useState<'primary' | 'featured'>('primary');
+  const [artistSearch, setArtistSearch] = useState('');
+  const [newArtistName, setNewArtistName] = useState('');
+  const [newSpotifyUrl, setNewSpotifyUrl] = useState('');
+  const [newAppleUrl, setNewAppleUrl] = useState('');
+  const [newSpotifyCreate, setNewSpotifyCreate] = useState(false);
+  const [newAppleCreate, setNewAppleCreate] = useState(false);
+  const [artistSaving, setArtistSaving] = useState(false);
   const [featuredArtistsList, setFeaturedArtistsList] = useState<ArtistFormItem[]>([]);
   const [genre, setGenre] = useState('Amapiano');
   const [subGenre, setSubGenre] = useState('');
   const [language, setLanguage] = useState('Zulu');
-  const [composerInput, setComposerInput] = useState('');
+  const [composerFirstName, setComposerFirstName] = useState('');
+  const [composerSurname, setComposerSurname] = useState('');
   const [composers, setComposers] = useState<string[]>([]);
-  const [producerInput, setProducerInput] = useState('');
+  const [producerFirstName, setProducerFirstName] = useState('');
+  const [producerSurname, setProducerSurname] = useState('');
   const [producers, setProducers] = useState<string[]>([]);
-  useEffect(() => {
-    const legalName = (user?.name || '').trim();
-    if (!legalName) return;
-    setComposers(current => current.includes(legalName) ? current : [legalName, ...current]);
-    setProducers(current => current.includes(legalName) ? current : [legalName, ...current]);
-  }, [user?.name]);
   const [targetReleaseDate, setTargetReleaseDate] = useState(minTargetDate);
   const [previouslyReleased, setPreviouslyReleased] = useState(false);
   const [previousReleaseDetails, setPreviousReleaseDetails] = useState('');
@@ -372,8 +377,12 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         if (d.genre) setGenre(d.genre);
         if (d.subGenre) setSubGenre(d.subGenre);
         if (d.language) setLanguage(d.language);
-        if (Array.isArray(d.composers)) setComposers(d.composers);
-        if (Array.isArray(d.producers)) setProducers(d.producers);
+        const draftArtistNames = (Array.isArray(d.primaryArtistsList) ? d.primaryArtistsList : [])
+          .map((artist: any) => String(artist?.name || '').trim().toLocaleLowerCase()).filter(Boolean);
+        const accountArtistNames = [user?.name, (user as any)?.artistName, ...draftArtistNames]
+          .map(name => String(name || '').trim().toLocaleLowerCase()).filter(Boolean);
+        if (Array.isArray(d.composers)) setComposers(d.composers.filter((name: string) => !accountArtistNames.includes(String(name).trim().toLocaleLowerCase())));
+        if (Array.isArray(d.producers)) setProducers(d.producers.filter((name: string) => !accountArtistNames.includes(String(name).trim().toLocaleLowerCase())));
         if (d.targetReleaseDate) setTargetReleaseDate(d.targetReleaseDate);
         if (d.previouslyReleased !== undefined) setPreviouslyReleased(d.previouslyReleased);
         if (d.previousReleaseDetails) setPreviousReleaseDetails(d.previousReleaseDetails);
@@ -418,10 +427,11 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setGenre('Amapiano');
     setSubGenre('');
     setLanguage('Zulu');
-    setComposerInput('');
+    setComposerFirstName(''); setComposerSurname('');
     setComposers([]);
-    setProducerInput('');
+    setProducerFirstName(''); setProducerSurname('');
     setProducers([]);
+    setArtistDialogOpen(false); setArtistSearch(''); setNewArtistName(''); setNewSpotifyUrl(''); setNewAppleUrl(''); setNewSpotifyCreate(false); setNewAppleCreate(false);
     setTargetReleaseDate(getMinTargetDate());
     setPreviouslyReleased(false);
     setPreviousReleaseDetails('');
@@ -485,11 +495,61 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   if (!isOpen) return null;
 
   // Add primary artist
-  const handleAddPrimaryArtist = () => {
-    setPrimaryArtistsList([
-      ...primaryArtistsList,
-      { id: `pa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
-    ]);
+  const openArtistDialog = (role: 'primary' | 'featured') => {
+    setArtistDialogRole(role);
+    setArtistSearch('');
+    setNewArtistName('');
+    setNewSpotifyUrl('');
+    setNewAppleUrl('');
+    setNewSpotifyCreate(false);
+    setNewAppleCreate(false);
+    setArtistDialogOpen(true);
+  };
+  const handleAddPrimaryArtist = () => openArtistDialog('primary');
+  const handleAddFeaturedArtist = () => openArtistDialog('featured');
+
+  const addArtistToRelease = (artist: ArtistCredit) => {
+    const item: ArtistFormItem = {
+      id: `${artistDialogRole}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: artist.name,
+      spotifyProfileUrl: artist.spotifyProfileUrl || '',
+      appleMusicProfileUrl: artist.appleMusicProfileUrl || '',
+      spotifyProfileCreateRequested: !!artist.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!artist.appleMusicProfileCreateRequested,
+    };
+    if (artistDialogRole === 'primary') {
+      setPrimaryArtistsList(current => [...current.filter(a => a.name.trim()), item]);
+    } else {
+      setFeaturedArtistsList(current => [...current, item]);
+    }
+    setArtistDialogOpen(false);
+  };
+
+  const handleCreateArtist = async () => {
+    const name = newArtistName.trim();
+    if (!name) { setSubmitError('Enter an artist name.'); return; }
+    if ((!newSpotifyUrl.trim() && !newSpotifyCreate) || (!newAppleUrl.trim() && !newAppleCreate)) {
+      setSubmitError('For each platform, provide an existing profile link or select the profile creation option.');
+      return;
+    }
+    setArtistSaving(true);
+    try {
+      const result = await api.saveArtist({
+        name,
+        role: artistDialogRole,
+        spotifyProfileUrl: newSpotifyCreate ? undefined : newSpotifyUrl.trim(),
+        appleMusicProfileUrl: newAppleCreate ? undefined : newAppleUrl.trim(),
+        spotifyProfileCreateRequested: newSpotifyCreate,
+        appleMusicProfileCreateRequested: newAppleCreate,
+      });
+      setArtistLibrary(result.artists || [...artistLibrary, result.artist]);
+      addArtistToRelease(result.artist);
+      setSubmitError(null);
+    } catch (error: any) {
+      setSubmitError(error?.message || 'Could not save this artist. Please try again.');
+    } finally {
+      setArtistSaving(false);
+    }
   };
 
   const findSavedArtist = (name: string) => artistLibrary.find((artist) => artist.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
@@ -582,14 +642,6 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setTracks(copy);
   };
 
-  // Add featured artist
-  const handleAddFeaturedArtist = () => {
-    setFeaturedArtistsList([
-      ...featuredArtistsList,
-      { id: `fa_${Date.now()}`, name: '', spotifyProfileUrl: '', appleMusicProfileCreateRequested: false, spotifyProfileCreateRequested: false },
-    ]);
-  };
-
   const handleUpdateFeaturedArtist = (idx: number, field: keyof ArtistFormItem, val: any) => {
     const copy = [...featuredArtistsList];
     copy[idx] = { ...copy[idx], [field]: val };
@@ -654,31 +706,27 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     setTracks(copy);
   };
 
-  // Add composer
+  // Each composer/songwriter and producer credit must use a real first name and surname.
   const handleAddComposer = () => {
-    if (composerInput.trim() && !composers.includes(composerInput.trim())) {
-      setComposers([...composers, composerInput.trim()]);
-      setComposerInput('');
+    const fullName = `${composerFirstName.trim()} ${composerSurname.trim()}`.trim();
+    if (!composerFirstName.trim() || !composerSurname.trim()) {
+      setSubmitError('Enter both the composer/songwriter first name and surname.');
+      return;
     }
+    if (!composers.some(name => name.toLowerCase() === fullName.toLowerCase())) setComposers(current => [...current, fullName]);
+    setComposerFirstName(''); setComposerSurname(''); setSubmitError(null);
   };
-
-  const handleRemoveComposer = (idx: number) => {
-    if (composers[idx]?.trim() === (user?.name || '').trim()) return;
-    setComposers(composers.filter((_, i) => i !== idx));
-  };
-
-  // Add producer
+  const handleRemoveComposer = (idx: number) => setComposers(current => current.filter((_, i) => i !== idx));
   const handleAddProducer = () => {
-    if (producerInput.trim() && !producers.includes(producerInput.trim())) {
-      setProducers([...producers, producerInput.trim()]);
-      setProducerInput('');
+    const fullName = `${producerFirstName.trim()} ${producerSurname.trim()}`.trim();
+    if (!producerFirstName.trim() || !producerSurname.trim()) {
+      setSubmitError('Enter both the producer first name and surname.');
+      return;
     }
+    if (!producers.some(name => name.toLowerCase() === fullName.toLowerCase())) setProducers(current => [...current, fullName]);
+    setProducerFirstName(''); setProducerSurname(''); setSubmitError(null);
   };
-
-  const handleRemoveProducer = (idx: number) => {
-    if (producers[idx]?.trim() === (user?.name || '').trim()) return;
-    setProducers(producers.filter((_, i) => i !== idx));
-  };
+  const handleRemoveProducer = (idx: number) => setProducers(current => current.filter((_, i) => i !== idx));
 
   // Artwork file upload & validation
   const handleArtworkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -873,6 +921,27 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
       return false;
     }
 
+    if (!language.trim()) {
+      setSubmitError('Please select the release language.');
+      return false;
+    }
+    if ((composerFirstName.trim() || composerSurname.trim()) && (!composerFirstName.trim() || !composerSurname.trim())) {
+      setSubmitError('Complete both composer/songwriter first name and surname.');
+      return false;
+    }
+    if ((producerFirstName.trim() || producerSurname.trim()) && (!producerFirstName.trim() || !producerSurname.trim())) {
+      setSubmitError('Complete both producer first name and surname.');
+      return false;
+    }
+    if (composerFirstName.trim() && composerSurname.trim()) {
+      setSubmitError('Click Add to save the composer/songwriter credit before continuing.');
+      return false;
+    }
+    if (producerFirstName.trim() && producerSurname.trim()) {
+      setSubmitError('Click Add to save the producer credit before continuing.');
+      return false;
+    }
+
     // Require Primary Artist
     const hasPrimaryArtist = primaryArtistsList.some((a) => (a?.name || '').trim().length > 0);
     if (!hasPrimaryArtist) {
@@ -1040,8 +1109,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'primary',
           spotifyProfileUrl: (a?.spotifyProfileUrl || '').trim() || undefined,
           appleMusicProfileUrl: (a?.appleMusicProfileUrl || '').trim() || undefined,
-          spotifyProfileCreateRequested: !findSavedArtist(a.name) && !!a.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !findSavedArtist(a.name) && !!a.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const featuredArtistProfiles: ArtistCredit[] = featuredArtistsList
@@ -1051,8 +1120,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'featured',
           spotifyProfileUrl: (a?.spotifyProfileUrl || '').trim() || undefined,
           appleMusicProfileUrl: (a?.appleMusicProfileUrl || '').trim() || undefined,
-          spotifyProfileCreateRequested: !findSavedArtist(a.name) && !!a.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !findSavedArtist(a.name) && !!a.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
         }));
 
       const finalTracks = tracks.map((t, idx) => {
@@ -1067,8 +1136,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'primary' as const,
           spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || undefined,
           appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || undefined,
-          spotifyProfileCreateRequested: !findSavedArtist(pa.name) && !!pa.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !findSavedArtist(pa.name) && !!pa.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !!pa.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!pa.appleMusicProfileCreateRequested,
         }));
 
         const songFeaturedProfiles: ArtistCredit[] = (t.featuredArtists || [])
@@ -1078,8 +1147,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'featured' as const,
             spotifyProfileUrl: fa.spotifyProfileUrl?.trim() || undefined,
             appleMusicProfileUrl: fa.appleMusicProfileUrl?.trim() || undefined,
-            spotifyProfileCreateRequested: !findSavedArtist(fa.name) && !!fa.spotifyProfileCreateRequested,
-            appleMusicProfileCreateRequested: !findSavedArtist(fa.name) && !!fa.appleMusicProfileCreateRequested,
+            spotifyProfileCreateRequested: !!fa.spotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !!fa.appleMusicProfileCreateRequested,
           }));
 
         const trackArtistProfiles: ArtistCredit[] = [
@@ -1124,8 +1193,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         genre,
         subGenre: subGenre.trim() || undefined,
         language: language.trim() || 'Zulu',
-        composers: composers.length > 0 ? composers : composerInput.trim() ? [composerInput.trim()] : [],
-        producers: producers.length > 0 ? producers : producerInput.trim() ? [producerInput.trim()] : [],
+        composers,
+        producers,
         targetReleaseDate,
         previouslyReleased,
         previousReleaseDetails: previouslyReleased ? previousReleaseDetails : undefined,
@@ -1399,14 +1468,6 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           <span>Add Artist</span>
                         </button>
                     </div>
-
-                    <datalist id="midama-saved-primary-artists">
-                      {artistLibrary.filter(artist => artist.name.toLocaleLowerCase() !== (user?.name || '').trim().toLocaleLowerCase()).map(artist => <option key={artist.id || artist.name} value={artist.name} />)}
-                    </datalist>
-                    {artistLibrary.length > 0 && <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-3 space-y-2">
-                      <p className="text-[10px] uppercase tracking-widest font-bold text-neutral-500">Your saved artists — click to add</p>
-                      <div className="flex flex-wrap gap-2">{artistLibrary.map(saved => <button key={saved.id || saved.name} type="button" onClick={() => selectSavedPrimaryArtist(saved)} title={`Spotify: ${saved.spotifyProfileUrl || (saved.spotifyProfileCreateRequested ? 'Creation requested' : 'Not added')} | Apple Music: ${saved.appleMusicProfileUrl || (saved.appleMusicProfileCreateRequested ? 'Creation requested' : 'Not added')}`} className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-[11px] font-semibold text-neutral-200 hover:border-red-600 hover:text-white">{saved.name}</button>)}</div>
-                    </div>}
                     {primaryArtistsList.map((artist, idx) => (
                       <div
                         key={artist.id}
@@ -1435,15 +1496,15 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           <input
                             type="text"
                             required
+                            readOnly
                             value={artist.name}
-                            onChange={(e) => handleUpdatePrimaryArtist(idx, 'name', e.target.value)}
-                            placeholder="Enter primary artist name"
-                            list="midama-saved-primary-artists"
+                            onClick={() => openArtistDialog('primary')}
+                            placeholder="Click to search or create an artist"
                             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600"
                           />
                         </div>
 
-                        {findSavedArtist(artist.name) ? <p className="text-[11px] text-emerald-400">Saved artist selected — existing profile details will be reused automatically.</p> : (
+                        {!artist.name.trim() ? <p className="text-[11px] text-neutral-500">Use Add Artist to create a new artist or select one from your saved library.</p> : findSavedArtist(artist.name) ? <p className="text-[11px] text-emerald-400">Saved artist selected — existing profile details will be reused automatically.</p> : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <ArtistProfileField
                             platform="spotify"
@@ -1497,13 +1558,6 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                         <span>Add Artist</span>
                       </button>
                     </div>
-
-                    <datalist id="midama-saved-featured-artists">
-                      {artistLibrary.map(artist => <option key={artist.id || artist.name} value={artist.name} />)}
-                    </datalist>
-                    {artistLibrary.length > 0 && <div className="flex flex-wrap gap-2">
-                      {artistLibrary.map(saved => <button key={`featured-${saved.id || saved.name}`} type="button" onClick={() => selectSavedFeaturedArtist(saved)} title={`Add ${saved.name} as a featured artist`} className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] font-semibold text-neutral-400 hover:border-red-600 hover:text-white">+ {saved.name}</button>)}
-                    </div>}
                     {featuredArtistsList.length > 0 && (
                       <div className="space-y-3">
                         {featuredArtistsList.map((artist, idx) => (
@@ -1532,10 +1586,10 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               <input
                                 type="text"
                                 required
+                                readOnly
                                 value={artist.name}
-                                onChange={(e) => handleUpdateFeaturedArtist(idx, 'name', e.target.value)}
-                                placeholder="Enter featured artist name"
-                                list="midama-saved-featured-artists"
+                                onClick={() => openArtistDialog('featured')}
+                                placeholder="Click to search or create an artist"
                                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs sm:text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-red-600"
                               />
                             </div>
@@ -1611,13 +1665,207 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                       <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
                         Release Language <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="text"
+                      <select
+                        required
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
-                        placeholder="e.g. Zulu / English / Sotho"
                         className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-neutral-100 focus:outline-none focus:border-red-600"
-                      />
+                      >
+                        <option value="" disabled>Select release language</option>
+                        <option value="Afar">Afar</option>
+                        <option value="Abkhazian">Abkhazian</option>
+                        <option value="Afrikaans">Afrikaans</option>
+                        <option value="Akan">Akan</option>
+                        <option value="Amharic">Amharic</option>
+                        <option value="Arabic">Arabic</option>
+                        <option value="Aragonese">Aragonese</option>
+                        <option value="Assamese">Assamese</option>
+                        <option value="Avaric">Avaric</option>
+                        <option value="Avestan">Avestan</option>
+                        <option value="Aymara">Aymara</option>
+                        <option value="Azerbaijani">Azerbaijani</option>
+                        <option value="Bashkir">Bashkir</option>
+                        <option value="Bambara">Bambara</option>
+                        <option value="Belarusian">Belarusian</option>
+                        <option value="Bengali">Bengali</option>
+                        <option value="Bislama">Bislama</option>
+                        <option value="Tibetan">Tibetan</option>
+                        <option value="Bosnian">Bosnian</option>
+                        <option value="Breton">Breton</option>
+                        <option value="Bulgarian">Bulgarian</option>
+                        <option value="Catalan">Catalan</option>
+                        <option value="Czech">Czech</option>
+                        <option value="Chamorro">Chamorro</option>
+                        <option value="Chechen">Chechen</option>
+                        <option value="Church Slavic">Church Slavic</option>
+                        <option value="Chuvash">Chuvash</option>
+                        <option value="Cornish">Cornish</option>
+                        <option value="Corsican">Corsican</option>
+                        <option value="Cree">Cree</option>
+                        <option value="Welsh">Welsh</option>
+                        <option value="Danish">Danish</option>
+                        <option value="German">German</option>
+                        <option value="Dhivehi">Dhivehi</option>
+                        <option value="Dzongkha">Dzongkha</option>
+                        <option value="Modern Greek (1453-)">Modern Greek (1453-)</option>
+                        <option value="English">English</option>
+                        <option value="Esperanto">Esperanto</option>
+                        <option value="Estonian">Estonian</option>
+                        <option value="Basque">Basque</option>
+                        <option value="Ewe">Ewe</option>
+                        <option value="Faroese">Faroese</option>
+                        <option value="Persian">Persian</option>
+                        <option value="Fijian">Fijian</option>
+                        <option value="Finnish">Finnish</option>
+                        <option value="French">French</option>
+                        <option value="Western Frisian">Western Frisian</option>
+                        <option value="Fulah">Fulah</option>
+                        <option value="Scottish Gaelic">Scottish Gaelic</option>
+                        <option value="Irish">Irish</option>
+                        <option value="Galician">Galician</option>
+                        <option value="Manx">Manx</option>
+                        <option value="Guarani">Guarani</option>
+                        <option value="Gujarati">Gujarati</option>
+                        <option value="Haitian">Haitian</option>
+                        <option value="Hausa">Hausa</option>
+                        <option value="Serbo-Croatian">Serbo-Croatian</option>
+                        <option value="Hebrew">Hebrew</option>
+                        <option value="Herero">Herero</option>
+                        <option value="Hindi">Hindi</option>
+                        <option value="Hiri Motu">Hiri Motu</option>
+                        <option value="Croatian">Croatian</option>
+                        <option value="Hungarian">Hungarian</option>
+                        <option value="Armenian">Armenian</option>
+                        <option value="Igbo">Igbo</option>
+                        <option value="Ido">Ido</option>
+                        <option value="Sichuan Yi">Sichuan Yi</option>
+                        <option value="Inuktitut">Inuktitut</option>
+                        <option value="Interlingue">Interlingue</option>
+                        <option value="Interlingua (International Auxiliary Language Association)">Interlingua (International Auxiliary Language Association)</option>
+                        <option value="Indonesian">Indonesian</option>
+                        <option value="Inupiaq">Inupiaq</option>
+                        <option value="Icelandic">Icelandic</option>
+                        <option value="Italian">Italian</option>
+                        <option value="Javanese">Javanese</option>
+                        <option value="Japanese">Japanese</option>
+                        <option value="Kalaallisut">Kalaallisut</option>
+                        <option value="Kannada">Kannada</option>
+                        <option value="Kashmiri">Kashmiri</option>
+                        <option value="Georgian">Georgian</option>
+                        <option value="Kanuri">Kanuri</option>
+                        <option value="Kazakh">Kazakh</option>
+                        <option value="Khmer">Khmer</option>
+                        <option value="Kikuyu">Kikuyu</option>
+                        <option value="Kinyarwanda">Kinyarwanda</option>
+                        <option value="Kirghiz">Kirghiz</option>
+                        <option value="Komi">Komi</option>
+                        <option value="Kongo">Kongo</option>
+                        <option value="Korean">Korean</option>
+                        <option value="Kuanyama">Kuanyama</option>
+                        <option value="Kurdish">Kurdish</option>
+                        <option value="Lao">Lao</option>
+                        <option value="Latin">Latin</option>
+                        <option value="Latvian">Latvian</option>
+                        <option value="Limburgan">Limburgan</option>
+                        <option value="Lingala">Lingala</option>
+                        <option value="Lithuanian">Lithuanian</option>
+                        <option value="Luxembourgish">Luxembourgish</option>
+                        <option value="Luba-Katanga">Luba-Katanga</option>
+                        <option value="Ganda">Ganda</option>
+                        <option value="Marshallese">Marshallese</option>
+                        <option value="Malayalam">Malayalam</option>
+                        <option value="Marathi">Marathi</option>
+                        <option value="Macedonian">Macedonian</option>
+                        <option value="Malagasy">Malagasy</option>
+                        <option value="Maltese">Maltese</option>
+                        <option value="Mongolian">Mongolian</option>
+                        <option value="Maori">Maori</option>
+                        <option value="Malay (macrolanguage)">Malay (macrolanguage)</option>
+                        <option value="Burmese">Burmese</option>
+                        <option value="Nauru">Nauru</option>
+                        <option value="Navajo">Navajo</option>
+                        <option value="South Ndebele">South Ndebele</option>
+                        <option value="North Ndebele">North Ndebele</option>
+                        <option value="Ndonga">Ndonga</option>
+                        <option value="Nepali (macrolanguage)">Nepali (macrolanguage)</option>
+                        <option value="Dutch">Dutch</option>
+                        <option value="Norwegian Nynorsk">Norwegian Nynorsk</option>
+                        <option value="Norwegian Bokmål">Norwegian Bokmål</option>
+                        <option value="Norwegian">Norwegian</option>
+                        <option value="Nyanja">Nyanja</option>
+                        <option value="Occitan (post 1500)">Occitan (post 1500)</option>
+                        <option value="Ojibwa">Ojibwa</option>
+                        <option value="Oriya (macrolanguage)">Oriya (macrolanguage)</option>
+                        <option value="Oromo">Oromo</option>
+                        <option value="Ossetian">Ossetian</option>
+                        <option value="Panjabi">Panjabi</option>
+                        <option value="Pali">Pali</option>
+                        <option value="Polish">Polish</option>
+                        <option value="Portuguese">Portuguese</option>
+                        <option value="Pushto">Pushto</option>
+                        <option value="Quechua">Quechua</option>
+                        <option value="Romansh">Romansh</option>
+                        <option value="Romanian">Romanian</option>
+                        <option value="Rundi">Rundi</option>
+                        <option value="Russian">Russian</option>
+                        <option value="Sango">Sango</option>
+                        <option value="Sanskrit">Sanskrit</option>
+                        <option value="Sinhala">Sinhala</option>
+                        <option value="Slovak">Slovak</option>
+                        <option value="Slovenian">Slovenian</option>
+                        <option value="Northern Sami">Northern Sami</option>
+                        <option value="Samoan">Samoan</option>
+                        <option value="Shona">Shona</option>
+                        <option value="Sindhi">Sindhi</option>
+                        <option value="Somali">Somali</option>
+                        <option value="Southern Sotho">Southern Sotho</option>
+                        <option value="Spanish">Spanish</option>
+                        <option value="Albanian">Albanian</option>
+                        <option value="Sardinian">Sardinian</option>
+                        <option value="Serbian">Serbian</option>
+                        <option value="Swati">Swati</option>
+                        <option value="Sundanese">Sundanese</option>
+                        <option value="Swahili (macrolanguage)">Swahili (macrolanguage)</option>
+                        <option value="Swedish">Swedish</option>
+                        <option value="Tahitian">Tahitian</option>
+                        <option value="Tamil">Tamil</option>
+                        <option value="Tatar">Tatar</option>
+                        <option value="Telugu">Telugu</option>
+                        <option value="Tajik">Tajik</option>
+                        <option value="Tagalog">Tagalog</option>
+                        <option value="Thai">Thai</option>
+                        <option value="Tigrinya">Tigrinya</option>
+                        <option value="Tonga (Tonga Islands)">Tonga (Tonga Islands)</option>
+                        <option value="Tswana">Tswana</option>
+                        <option value="Tsonga">Tsonga</option>
+                        <option value="Turkmen">Turkmen</option>
+                        <option value="Turkish">Turkish</option>
+                        <option value="Twi">Twi</option>
+                        <option value="Uighur">Uighur</option>
+                        <option value="Ukrainian">Ukrainian</option>
+                        <option value="Urdu">Urdu</option>
+                        <option value="Uzbek">Uzbek</option>
+                        <option value="Venda">Venda</option>
+                        <option value="Vietnamese">Vietnamese</option>
+                        <option value="Volapük">Volapük</option>
+                        <option value="Walloon">Walloon</option>
+                        <option value="Wolof">Wolof</option>
+                        <option value="Xhosa">Xhosa</option>
+                        <option value="Yiddish">Yiddish</option>
+                        <option value="Yoruba">Yoruba</option>
+                        <option value="Zhuang">Zhuang</option>
+                        <option value="Chinese">Chinese</option>
+                        <option value="Zulu">Zulu</option>
+                        <option value="isiNdebele">isiNdebele</option>
+                        <option value="isiXhosa">isiXhosa</option>
+                        <option value="isiZulu">isiZulu</option>
+                        <option value="Sepedi">Sepedi</option>
+                        <option value="Sesotho">Sesotho</option>
+                        <option value="Setswana">Setswana</option>
+                        <option value="siSwati">siSwati</option>
+                        <option value="Tshivenda">Tshivenda</option>
+                        <option value="itsonga">itsonga</option>
+                      </select>
                     </div>
 
                     <div>
@@ -1638,102 +1886,29 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Composers & Producers */}
+                  {/* Composers & Producers — legal names only; never prefill with artist names */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                        Composer(s) / Songwriter(s) — your real name and surname are compulsory
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-neutral-300">
+                        Composer(s) / Songwriter(s) — real first name and surname *
                       </label>
-                      <div className="flex gap-2 mb-2">
-                        <input
-                          type="text"
-                          value={composerInput}
-                          onChange={(e) => setComposerInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddComposer();
-                            }
-                          }}
-                          placeholder="Add another composer / songwriter (optional)..."
-                          className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddComposer}
-                          className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-xl cursor-pointer"
-                        >
-                          Add
-                        </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="text" value={composerFirstName} onChange={e => setComposerFirstName(e.target.value)} placeholder="First name *" className="min-w-0 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
+                        <input type="text" value={composerSurname} onChange={e => setComposerSurname(e.target.value)} placeholder="Surname *" className="min-w-0 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
                       </div>
-                      {composers.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {composers.map((c, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] rounded"
-                            >
-                              <span>{c}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveComposer(i)}
-                                disabled={c.trim() === (user?.name || '').trim()}
-                                className="text-neutral-500 hover:text-red-400"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <button type="button" onClick={handleAddComposer} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-xl cursor-pointer">Add</button>
+                      {composers.length > 0 && <div className="flex flex-wrap gap-1.5">{composers.map((c, i) => <span key={`${c}-${i}`} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] rounded"><span>{c}</span><button type="button" onClick={() => handleRemoveComposer(i)} className="text-neutral-500 hover:text-red-400">×</button></span>)}</div>}
                     </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
-                        Producer(s) — your real name and surname are compulsory
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-neutral-300">
+                        Producer(s) — real first name and surname *
                       </label>
-                      <div className="flex gap-2 mb-2">
-                        <input
-                          type="text"
-                          value={producerInput}
-                          onChange={(e) => setProducerInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddProducer();
-                            }
-                          }}
-                          placeholder="Add another producer (optional)..."
-                          className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddProducer}
-                          className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-xl cursor-pointer"
-                        >
-                          Add
-                        </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="text" value={producerFirstName} onChange={e => setProducerFirstName(e.target.value)} placeholder="First name *" className="min-w-0 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
+                        <input type="text" value={producerSurname} onChange={e => setProducerSurname(e.target.value)} placeholder="Surname *" className="min-w-0 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
                       </div>
-                      {producers.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {producers.map((p, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] rounded"
-                            >
-                              <span>{p}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveProducer(i)}
-                                disabled={p.trim() === (user?.name || '').trim()}
-                                className="text-neutral-500 hover:text-red-400"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <button type="button" onClick={handleAddProducer} className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-xl cursor-pointer">Add</button>
+                      {producers.length > 0 && <div className="flex flex-wrap gap-1.5">{producers.map((p, i) => <span key={`${p}-${i}`} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] rounded"><span>{p}</span><button type="button" onClick={() => handleRemoveProducer(i)} className="text-neutral-500 hover:text-red-400">×</button></span>)}</div>}
                     </div>
                   </div>
 
@@ -2006,7 +2181,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                <div key={`primary-${paIdx}`} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-neutral-900/50 p-2 rounded-lg border border-neutral-800/60">
                                  <div className="sm:col-span-4">
                                    <label className="block text-[10px] font-mono text-neutral-400 mb-1">Primary Artist {paIdx + 1} {releaseType === 'EP' || releaseType === 'Album' ? '*' : ''}</label>
-                                   <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" list="midama-saved-primary-artists" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
+                                   <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
                                  </div>
                                  {findSavedArtist(pa.name) ? <div className="sm:col-span-6 text-[10px] text-emerald-400">Saved artist — existing profile details reused.</div> : (
                                     <>
@@ -2049,8 +2224,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                         )
                                       }
                                       placeholder="Featured artist name"
-                                      list="midama-saved-featured-artists"
-                                      className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
+                                            className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
                                     />
                                   </div>
                                   {findSavedArtist(fa.name) ? <div className="sm:col-span-7 text-[10px] text-emerald-400">Saved artist — existing profile details reused.</div> : (
@@ -2420,6 +2594,58 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                   )}
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {artistDialogOpen && (
+          <div className="absolute inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3">
+            <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-neutral-900 border border-neutral-700 rounded-2xl p-5 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white">Add {artistDialogRole === 'primary' ? 'Primary' : 'Featured'} Artist</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Create and save an artist, or select one from your private library.</p>
+                </div>
+                <button type="button" onClick={() => setArtistDialogOpen(false)} className="p-2 text-neutral-400 hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+
+              <section className="rounded-xl border border-neutral-700 bg-neutral-950/70 p-3 space-y-3">
+                <h4 className="text-xs font-bold text-white">Search saved artists</h4>
+                <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)} placeholder="Search your saved artists..." className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-600" />
+                <div className="max-h-36 overflow-y-auto space-y-1">
+                  {artistLibrary.filter(a => a.name.toLowerCase().includes(artistSearch.trim().toLowerCase())).map(saved => (
+                    <button key={saved.id || saved.name} type="button" onClick={() => addArtistToRelease(saved)} className="w-full text-left rounded-lg px-3 py-2 hover:bg-neutral-800 text-sm text-neutral-200 flex items-center justify-between">
+                      <span>{saved.name}</span><span className="text-[10px] text-emerald-400">Use saved artist</span>
+                    </button>
+                  ))}
+                  {artistLibrary.filter(a => a.name.toLowerCase().includes(artistSearch.trim().toLowerCase())).length === 0 && <p className="text-xs text-neutral-500 py-2">No matching saved artists. Create a new artist below.</p>}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-neutral-700 bg-neutral-950/70 p-3 space-y-3">
+                <h4 className="text-xs font-bold text-white">Create a new artist</h4>
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Artist name *</label>
+                  <input value={newArtistName} onChange={e => setNewArtistName(e.target.value)} placeholder="Enter artist or stage name" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-600" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold text-neutral-300">Spotify profile</label>
+                    <input value={newSpotifyUrl} onChange={e => { setNewSpotifyUrl(e.target.value); if (e.target.value) setNewSpotifyCreate(false); }} placeholder="Paste Spotify artist link" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white" />
+                    <label className="flex gap-2 items-center text-[11px] text-neutral-300"><input type="checkbox" checked={newSpotifyCreate} onChange={e => { setNewSpotifyCreate(e.target.checked); if (e.target.checked) setNewSpotifyUrl(''); }} /> Create new Spotify profile</label>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold text-neutral-300">Apple Music profile</label>
+                    <input value={newAppleUrl} onChange={e => { setNewAppleUrl(e.target.value); if (e.target.value) setNewAppleCreate(false); }} placeholder="Paste Apple Music artist link" className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white" />
+                    <label className="flex gap-2 items-center text-[11px] text-neutral-300"><input type="checkbox" checked={newAppleCreate} onChange={e => { setNewAppleCreate(e.target.checked); if (e.target.checked) setNewAppleUrl(''); }} /> Create new Apple Music profile</label>
+                  </div>
+                </div>
+                <p className="text-[10px] text-neutral-500">For each platform, enter its existing link or request a new profile. These details are saved to your account for future releases.</p>
+                <div className="flex justify-end">
+                  <button type="button" disabled={artistSaving} onClick={handleCreateArtist} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold">{artistSaving ? 'Saving artist...' : 'Create Artist'}</button>
+                </div>
+              </section>
+              <div className="flex justify-end"><button type="button" onClick={() => setArtistDialogOpen(false)} className="px-3 py-2 text-xs text-neutral-400 hover:text-white">Cancel</button></div>
             </div>
           </div>
         )}
