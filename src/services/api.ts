@@ -200,6 +200,13 @@ class ApiService {
     });
   }
 
+  async updateReleaseWorkflowStatus(id: string, status: 'Review Passed' | 'Delivered', note?: string): Promise<{ message: string; release: Release }> {
+    return this.request<{ message: string; release: Release }>(`/api/releases/${id}/workflow-status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, note }),
+    });
+  }
+
   // Admin Approval / Denial System
   async approveRelease(id: string, note?: string): Promise<{ message: string; release: Release }> {
     return this.request<{ message: string; release: Release }>(`/api/releases/${id}/approve`, {

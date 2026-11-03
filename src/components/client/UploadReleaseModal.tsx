@@ -1040,8 +1040,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'primary',
           spotifyProfileUrl: (a?.spotifyProfileUrl || '').trim() || undefined,
           appleMusicProfileUrl: (a?.appleMusicProfileUrl || '').trim() || undefined,
-          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !findSavedArtist(a.name) && !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !findSavedArtist(a.name) && !!a.appleMusicProfileCreateRequested,
         }));
 
       const featuredArtistProfiles: ArtistCredit[] = featuredArtistsList
@@ -1051,8 +1051,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'featured',
           spotifyProfileUrl: (a?.spotifyProfileUrl || '').trim() || undefined,
           appleMusicProfileUrl: (a?.appleMusicProfileUrl || '').trim() || undefined,
-          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !findSavedArtist(a.name) && !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !findSavedArtist(a.name) && !!a.appleMusicProfileCreateRequested,
         }));
 
       const finalTracks = tracks.map((t, idx) => {
@@ -1067,8 +1067,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           role: 'primary' as const,
           spotifyProfileUrl: pa.spotifyProfileUrl?.trim() || undefined,
           appleMusicProfileUrl: pa.appleMusicProfileUrl?.trim() || undefined,
-          spotifyProfileCreateRequested: !!pa.spotifyProfileCreateRequested,
-          appleMusicProfileCreateRequested: !!pa.appleMusicProfileCreateRequested,
+          spotifyProfileCreateRequested: !findSavedArtist(pa.name) && !!pa.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !findSavedArtist(pa.name) && !!pa.appleMusicProfileCreateRequested,
         }));
 
         const songFeaturedProfiles: ArtistCredit[] = (t.featuredArtists || [])
@@ -1078,8 +1078,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'featured' as const,
             spotifyProfileUrl: fa.spotifyProfileUrl?.trim() || undefined,
             appleMusicProfileUrl: fa.appleMusicProfileUrl?.trim() || undefined,
-            spotifyProfileCreateRequested: !!fa.spotifyProfileCreateRequested,
-            appleMusicProfileCreateRequested: !!fa.appleMusicProfileCreateRequested,
+            spotifyProfileCreateRequested: !findSavedArtist(fa.name) && !!fa.spotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !findSavedArtist(fa.name) && !!fa.appleMusicProfileCreateRequested,
           }));
 
         const trackArtistProfiles: ArtistCredit[] = [
@@ -1088,8 +1088,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
             role: 'primary' as const,
             spotifyProfileUrl: trackSpotify || undefined,
             appleMusicProfileUrl: trackApple || undefined,
-            spotifyProfileCreateRequested: !!t.primaryArtistSpotifyProfileCreateRequested,
-            appleMusicProfileCreateRequested: !!t.primaryArtistAppleMusicProfileCreateRequested,
+            spotifyProfileCreateRequested: !findSavedArtist(trackPrimary) && !!t.primaryArtistSpotifyProfileCreateRequested,
+            appleMusicProfileCreateRequested: !findSavedArtist(trackPrimary) && !!t.primaryArtistAppleMusicProfileCreateRequested,
           }]),
           ...songFeaturedProfiles,
         ];
@@ -1443,7 +1443,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           />
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {findSavedArtist(artist.name) ? <p className="text-[11px] text-emerald-400">Saved artist selected — existing profile details will be reused automatically.</p> : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <ArtistProfileField
                             platform="spotify"
                             url={artist.spotifyProfileUrl}
@@ -1470,6 +1471,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                             onUseExisting={() => handleUpdatePrimaryArtist(idx, 'appleMusicProfileCreateRequested' as any, false)}
                           />
                         </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1482,7 +1484,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                           Featured / Additional Artist(s) (Optional)
                         </label>
                         <p className="text-[11px] text-neutral-500">
-                          Each featured artist has their own Spotify & Apple Music profile links.
+                          For new artists, add Spotify and Apple Music links or request profile creation. Saved artists reuse their existing profile details automatically.
                         </p>
                       </div>
 
@@ -1538,7 +1540,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                               />
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {findSavedArtist(artist.name) ? <p className="text-[11px] text-emerald-400">Saved artist selected — existing profile details will be reused automatically.</p> : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <ArtistProfileField
                                 platform="spotify"
                                 url={artist.spotifyProfileUrl}
@@ -1565,6 +1568,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                 onUseExisting={() => handleUpdateFeaturedArtist(idx, 'appleMusicProfileCreateRequested' as any, false)}
                               />
                               </div>
+                              )}
                             </div>
                         ))}
 
@@ -2004,13 +2008,17 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                    <label className="block text-[10px] font-mono text-neutral-400 mb-1">Primary Artist {paIdx + 1} {releaseType === 'EP' || releaseType === 'Album' ? '*' : ''}</label>
                                    <input type="text" value={pa.name} onChange={(e) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'name', e.target.value)} placeholder="Primary artist name" list="midama-saved-primary-artists" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-red-600" />
                                  </div>
-                                 <div className="sm:col-span-3">
+                                 {findSavedArtist(pa.name) ? <div className="sm:col-span-6 text-[10px] text-emerald-400">Saved artist — existing profile details reused.</div> : (
+                                    <>
+<div className="sm:col-span-3">
                                    <ArtistProfileField platform="spotify" compact url={pa.spotifyProfileUrl || ''} createRequested={pa.spotifyProfileCreateRequested} onUrlChange={(value) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileUrl', value)} onCreateRequested={() => { const copy = [...tracks]; const cur = getTrackPrimaryArtists(copy[idx]); cur[paIdx] = { ...cur[paIdx], spotifyProfileUrl: '', spotifyProfileCreateRequested: true }; copy[idx].primaryArtists = cur; setTracks(copy); }} onUseExisting={() => handleUpdateTrackPrimaryArtist(idx, paIdx, 'spotifyProfileCreateRequested', false)} />
                                  </div>
                                  <div className="sm:col-span-3">
                                    <ArtistProfileField platform="apple" compact url={pa.appleMusicProfileUrl || ''} createRequested={pa.appleMusicProfileCreateRequested} onUrlChange={(value) => handleUpdateTrackPrimaryArtist(idx, paIdx, 'appleMusicProfileUrl', value)} onCreateRequested={() => { const copy = [...tracks]; const cur = getTrackPrimaryArtists(copy[idx]); cur[paIdx] = { ...cur[paIdx], appleMusicProfileUrl: '', appleMusicProfileCreateRequested: true }; copy[idx].primaryArtists = cur; setTracks(copy); }} onUseExisting={() => handleUpdateTrackPrimaryArtist(idx, paIdx, 'appleMusicProfileCreateRequested', false)} />
                                  </div>
-                                 <div className="sm:col-span-2 flex justify-end gap-1">
+                                                                     </>
+                                  )}
+<div className="sm:col-span-2 flex justify-end gap-1">
                                    {paIdx > 0 && <button type="button" onClick={() => handleRemoveTrackPrimaryArtist(idx, paIdx)} className="text-neutral-500 hover:text-red-400 p-1 cursor-pointer" title="Remove primary artist"><Trash2 className="w-3 h-3" /></button>}
                                  </div>
                                </div>
@@ -2045,7 +2053,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                       className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:border-red-600"
                                     />
                                   </div>
-                                  <div className="sm:col-span-4">
+                                  {findSavedArtist(fa.name) ? <div className="sm:col-span-7 text-[10px] text-emerald-400">Saved artist — existing profile details reused.</div> : (
+                                    <>
+<div className="sm:col-span-4">
                                     <ArtistProfileField
                                       platform="spotify"
                                       compact
@@ -2085,7 +2095,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                                       }}
                                     />
                                   </div>
-                                  <div className="sm:col-span-1 text-right">
+                                                                      </>
+                                  )}
+<div className="sm:col-span-1 text-right">
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveTrackFeaturedArtist(idx, faIdx)}

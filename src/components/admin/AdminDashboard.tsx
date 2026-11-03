@@ -453,7 +453,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       case 'Pending Review':
         return 'text-amber-400 bg-amber-950/40 border-amber-800/80';
       case 'Approved':
+      case 'Review Passed':
         return 'text-emerald-400 bg-emerald-950/40 border-emerald-800/80';
+      case 'Delivered':
+        return 'text-cyan-300 bg-cyan-950/40 border-cyan-800/80';
+      case 'Completed':
+        return 'text-blue-300 bg-blue-950/40 border-blue-800/80';
       case 'Denied':
         return 'text-red-400 bg-red-950/40 border-red-800/80';
       case 'Corrections Required':
@@ -784,7 +789,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-xs text-neutral-400 font-mono flex items-center gap-1 shrink-0">
                   <Filter className="w-3.5 h-3.5" /> Status:
                 </span>
-                {['All', 'Pending Review', 'Approved', 'Corrections Required', 'Takedown Requested', 'Takedown Processing', 'Takedown Completed', 'Denied'].map((st) => (
+                {['All', 'Pending Review', 'Review Passed', 'Approved', 'Delivered', 'Completed', 'Corrections Required', 'Takedown Requested', 'Takedown Processing', 'Takedown Completed', 'Denied'].map((st) => (
                   <button
                     key={st}
                     onClick={() => setStatusFilter(st)}

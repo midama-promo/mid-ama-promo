@@ -31,6 +31,8 @@ export interface User {
 export type ReleaseStatus =
   | 'Pending Review'
   | 'Approved'
+  | 'Review Passed'
+  | 'Delivered'
   | 'Completed'
   | 'Denied'
   | 'Corrections Required'

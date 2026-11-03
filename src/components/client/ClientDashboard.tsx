@@ -180,7 +180,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
       case 'Pending Review':
         return 'text-amber-400 bg-amber-950/40 border-amber-800/80';
       case 'Approved':
+      case 'Review Passed':
         return 'text-emerald-400 bg-emerald-950/40 border-emerald-800/80';
+      case 'Delivered':
+        return 'text-cyan-300 bg-cyan-950/40 border-cyan-800/80';
       case 'Completed':
         return 'text-blue-400 bg-blue-950/40 border-blue-800/80';
       case 'Denied':
@@ -470,7 +473,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
               <span className="text-xs text-neutral-400 font-mono flex items-center gap-1 shrink-0">
                 <Filter className="w-3.5 h-3.5" /> Filter:
               </span>
-              {['All', 'Pending Review', 'Approved', 'Completed', 'Corrections Required', 'Denied'].map((st) => (
+              {['All', 'Pending Review', 'Review Passed', 'Approved', 'Delivered', 'Completed', 'Corrections Required', 'Denied'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
@@ -623,6 +626,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                         <span className="font-bold block">Denial Reason:</span>
                         <p className="text-[11px] leading-relaxed">{rel.denialReason}</p>
                       </div>
+                    </div>
+                  )}
+
+                  {(rel.status === 'Review Passed' || rel.status === 'Delivered') && (
+                    <div className={`mb-3 p-2.5 rounded-lg text-xs border flex items-center gap-1.5 ${rel.status === 'Delivered' ? 'bg-cyan-950/30 text-cyan-300 border-cyan-800/60' : 'bg-emerald-950/30 text-emerald-300 border-emerald-800/60'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-[11px]">
+                        {rel.status === 'Review Passed'
+                          ? 'Your release has passed Mid-Ama Promo review.'
+                          : 'Your release has been marked as delivered.'}
+                      </span>
                     </div>
                   )}
 

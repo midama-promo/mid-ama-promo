@@ -1380,6 +1380,42 @@ apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: Authen
   });
 });
 
+// Admin workflow milestones that are distinct from approval and final distribution completion.
+apiRouter.patch('/releases/:id/workflow-status', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+
+  const status = req.body?.status;
+  if (!['Review Passed', 'Delivered'].includes(status)) {
+    return res.status(400).json({ error: 'Choose Review Passed or Delivered.' });
+  }
+
+  const now = new Date().toISOString();
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+  const statusHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: status as ReleaseStatus,
+      note: note || (status === 'Review Passed'
+        ? 'Release passed Mid-Ama Promo review.'
+        : 'Release delivery has been confirmed.'),
+      timestamp: now,
+      updatedBy: req.user!.name,
+    },
+  ];
+  const updated = db.updateRelease(existing.id, {
+    status: status as ReleaseStatus,
+    adminNotes: note || existing.adminNotes,
+    statusHistory,
+  });
+  if (!updated) return res.status(404).json({ error: 'Release could not be updated.' });
+
+  res.json({
+    message: `${existing.refNumber} status updated to ${status}.`,
+    release: updated,
+  });
+});
+
 // Admin Approve Release
 apiRouter.post('/releases/:id/approve', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
   const existing = db.findReleaseById(req.params.id);

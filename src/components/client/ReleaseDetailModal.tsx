@@ -98,7 +98,10 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
       case 'Pending Review':
         return 'text-amber-400 bg-amber-950/40 border-amber-800/80';
       case 'Approved':
+      case 'Review Passed':
         return 'text-emerald-400 bg-emerald-950/40 border-emerald-800/80';
+      case 'Delivered':
+        return 'text-cyan-300 bg-cyan-950/40 border-cyan-800/80';
       case 'Completed':
         return 'text-blue-400 bg-blue-950/40 border-blue-800/80';
       case 'Denied':
@@ -141,6 +144,21 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
       if (onStatusUpdated) onStatusUpdated(res.release);
     } catch (err: any) {
       alert(err.message || 'Failed to mark release as completed.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ADMIN ACTION: UPDATE WORKFLOW MILESTONE
+  const handleWorkflowStatus = async (status: 'Review Passed' | 'Delivered') => {
+    try {
+      setActionLoading(true);
+      setStatusMessage(null);
+      const res = await api.updateReleaseWorkflowStatus(release.id, status, approvalNote.trim() || undefined);
+      setStatusMessage(`Release ${release.refNumber} status updated to ${status}.`);
+      if (onStatusUpdated) onStatusUpdated(res.release);
+    } catch (err: any) {
+      alert(err.message || `Could not update release status to ${status}.`);
     } finally {
       setActionLoading(false);
     }
@@ -635,6 +653,31 @@ export const ReleaseDetailModal: React.FC<ReleaseDetailModalProps> = ({
                   <span className="text-xs text-amber-300 mr-auto">Takedown requested by client. Update the processing status here.</span>
                   {release.status === 'Takedown Requested' && <button type="button" disabled={actionLoading} onClick={async()=>{ try { setActionLoading(true); const res=await api.processTakedown(release.id,'Takedown Processing','Takedown request is being processed.'); setStatusMessage('Takedown is now processing.'); if(onStatusUpdated) onStatusUpdated(res.release); } catch(err:any){alert(err.message||'Could not update takedown.');} finally{setActionLoading(false);} }} className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold">Mark Processing</button>}
                   <button type="button" disabled={actionLoading} onClick={async()=>{ try { setActionLoading(true); const res=await api.processTakedown(release.id,'Takedown Completed','Takedown marked completed by administration.'); setStatusMessage('Takedown marked completed.'); if(onStatusUpdated) onStatusUpdated(res.release); } catch(err:any){alert(err.message||'Could not complete takedown.');} finally{setActionLoading(false);} }} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold">Mark Completed</button>
+                </div>
+              )}
+
+              {/* Additional release workflow milestones */}
+              {isAdmin && (
+                <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Release Workflow Status</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={actionLoading || release.status === 'Review Passed' || release.status === 'Delivered' || release.status === 'Completed'}
+                      onClick={() => handleWorkflowStatus('Review Passed')}
+                      className="py-2.5 px-3 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-xs font-bold"
+                    >
+                      Mark Review Passed
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionLoading || release.status === 'Delivered' || release.status === 'Completed'}
+                      onClick={() => handleWorkflowStatus('Delivered')}
+                      className="py-2.5 px-3 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 text-white rounded-lg text-xs font-bold"
+                    >
+                      Mark Delivered
+                    </button>
+                  </div>
                 </div>
               )}
 
