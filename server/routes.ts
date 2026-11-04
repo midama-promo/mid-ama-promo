@@ -26,6 +26,7 @@ import type {
   ReleaseDocumentItem,
   CatalogueEntry,
   WithdrawalRequest,
+  SmartPreSavePage,
 } from './db.ts';
 import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
@@ -1544,6 +1545,126 @@ apiRouter.patch('/releases/:id/presave-links', authMiddleware, adminOnly, (req: 
     release: updated,
   });
 });
+
+
+// ----------------------------------------------------
+// Mid-Ama Promo Smart Pre-Save Pages
+// ----------------------------------------------------
+function safeSlug(value: string): string {
+  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70);
+}
+function isAllowedSmartlinkHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return ['soundblast.pro', 'soundblast.de', 'feature.fm', 'ffm.to'].some(domain => host === domain || host.endsWith(`.${domain}`));
+}
+function extractSoundBlastMetadata(html: string, sourceUrl: string) {
+  const getMeta = (key: string) => {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const patterns = [new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["']`, 'i'), new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["']`, 'i')];
+    for (const re of patterns) { const m = html.match(re); if (m?.[1]) return m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim(); }
+    return '';
+  };
+  const title = getMeta('og:title') || (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').replace(/<[^>]+>/g, '').trim();
+  const artworkUrl = getMeta('og:image');
+  const artist = getMeta('music:musician') || getMeta('og:description').split(/[|–—-]/)[0].trim();
+  const found = new Map<string, string>();
+  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  const classify = (url: string, label: string) => {
+    const text = `${label} ${url}`.toLowerCase();
+    const entries: Array<[string, RegExp]> = [
+      ['Spotify', /spotify/], ['Apple Music', /apple\.com|music\.apple/], ['YouTube Music', /music\.youtube|youtube\.com/],
+      ['Deezer', /deezer/], ['TIDAL', /tidal/], ['Amazon Music', /amazon\.(com|co\.)|music\.amazon/],
+      ['SoundCloud', /soundcloud/], ['Audiomack', /audiomack/], ['Boomplay', /boomplay/], ['Anghami', /anghami/], ['TikTok', /tiktok/], ['Pandora', /pandora/], ['Napster', /napster/], ['Qobuz', /qobuz/]
+    ];
+    return entries.find(([, re]) => re.test(text))?.[0] || '';
+  };
+  while ((match = anchorRe.exec(html)) !== null) {
+    const url = match[1].replace(/&amp;/g, '&');
+    let label = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const dsp = classify(url, label);
+    if (dsp && /^https?:\/\//i.test(url)) found.set(dsp, url);
+  }
+  // Feature.fm pages may serialize destinations in page data rather than anchors.
+  const urlRe = /https?:\\?\/\\?\/[^\s"'<>\\]+/g;
+  for (const raw of html.match(urlRe) || []) {
+    const url = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&').replace(/[),]+$/g, '');
+    const dsp = classify(url, '');
+    if (dsp && !found.has(dsp) && /^https?:\/\//i.test(url)) found.set(dsp, url);
+  }
+  return { title: title.replace(/\s*[|–—-]\s*(SoundBlast|Feature\.fm).*$/i, '').trim(), artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
+}
+
+apiRouter.post('/admin/presave/preview', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const rawUrl = String(req.body?.soundblastUrl || '').trim();
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { return res.status(400).json({ error: 'Enter a valid SoundBlast / Feature.fm smartlink URL.' }); }
+  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'For security, use an HTTPS SoundBlast or Feature.fm smartlink URL.' });
+  try {
+    const response = await fetch(parsed.toString(), { headers: { 'User-Agent': 'MidAmaPromoSmartLink/1.0', 'Accept': 'text/html' }, redirect: 'error', signal: AbortSignal.timeout(12000) });
+    if (!response.ok) return res.status(502).json({ error: `The source page returned HTTP ${response.status}.` });
+    const html = (await response.text()).slice(0, 3_000_000);
+    const metadata = extractSoundBlastMetadata(html, parsed.toString());
+    if (!metadata.title && metadata.dspLinks.length === 0) return res.status(422).json({ error: 'The source page did not expose its track details or DSP destinations. You can still create the page by entering the track title and DSP links manually.' });
+    res.json({ metadata });
+  } catch (error: any) {
+    res.status(502).json({ error: error?.name === 'TimeoutError' ? 'The SoundBlast page took too long to respond.' : 'Could not read this smartlink. You can enter the title and DSP destinations manually.' });
+  }
+});
+
+apiRouter.get('/admin/presave', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  res.json({ pages: db.getPreSavePages() });
+});
+apiRouter.post('/admin/presave', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const title = String(req.body?.title || '').trim();
+  const artist = String(req.body?.artist || '').trim();
+  const soundblastUrl = String(req.body?.soundblastUrl || '').trim();
+  const artworkUrl = String(req.body?.artworkUrl || '').trim();
+  const dspLinks = Array.isArray(req.body?.dspLinks) ? req.body.dspLinks : [];
+  let parsed: URL;
+  try { parsed = new URL(soundblastUrl); } catch { return res.status(400).json({ error: 'A valid source smartlink URL is required.' }); }
+  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'Use an HTTPS SoundBlast / Feature.fm source URL.' });
+  if (!title || title.length > 140) return res.status(400).json({ error: 'Track title is required (maximum 140 characters).' });
+  if (artist.length > 180) return res.status(400).json({ error: 'Artist name is too long.' });
+  if (dspLinks.length < 1 || dspLinks.length > 30) return res.status(400).json({ error: 'Add between 1 and 30 DSP destinations.' });
+  const cleanLinks: Array<{label:string;url:string}> = [];
+  for (const item of dspLinks) {
+    const label = String(item?.label || '').trim().slice(0, 50); const url = String(item?.url || '').trim();
+    let target: URL; try { target = new URL(url); } catch { return res.status(400).json({ error: `Invalid destination URL for ${label || 'DSP'}.` }); }
+    if (!label || !['http:', 'https:'].includes(target.protocol)) return res.status(400).json({ error: 'Each DSP destination needs a label and a valid HTTP(S) URL.' });
+    cleanLinks.push({ label, url: target.toString() });
+  }
+  const baseSlug = safeSlug(String(req.body?.slug || title));
+  if (!baseSlug) return res.status(400).json({ error: 'Could not create a URL from that track title.' });
+  let slug = baseSlug; let suffix = 2;
+  while (db.findPreSavePageBySlug(slug)) slug = `${baseSlug}-${suffix++}`;
+  const now = new Date().toISOString();
+  const page: SmartPreSavePage = { id: `presave_${crypto.randomUUID()}`, slug, title, artist, artworkUrl: /^https:\/\//i.test(artworkUrl) ? artworkUrl : undefined, soundblastUrl: parsed.toString(), dspLinks: cleanLinks, active: true, createdAt: now, updatedAt: now };
+  try { db.createPreSavePage(page); res.status(201).json({ message: 'Mid-Ama Promo pre-save page published.', page }); }
+  catch (error: any) { res.status(409).json({ error: error?.message || 'Could not create this pre-save page.' }); }
+});
+apiRouter.patch('/admin/presave/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.getPreSavePages().find(p => p.id === req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Pre-save page not found.' });
+  const updates: any = { updatedAt: new Date().toISOString() };
+  if (typeof req.body?.active === 'boolean') updates.active = req.body.active;
+  if (typeof req.body?.title === 'string' && req.body.title.trim()) updates.title = req.body.title.trim().slice(0, 140);
+  if (typeof req.body?.artist === 'string') updates.artist = req.body.artist.trim().slice(0, 180);
+  const page = db.updatePreSavePage(existing.id, updates);
+  res.json({ page });
+});
+apiRouter.delete('/admin/presave/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  if (!db.deletePreSavePage(req.params.id)) return res.status(404).json({ error: 'Pre-save page not found.' });
+  res.json({ message: 'Pre-save page deleted.' });
+});
+apiRouter.get('/public/presave/:slug', (req: Request, res: Response) => {
+  const page = db.findPreSavePageBySlug(String(req.params.slug || ''));
+  if (!page || !page.active) return res.status(404).json({ error: 'This pre-save page is unavailable.' });
+  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  res.json({ page });
+});
+
 
 // Admin Mark Release Completed / Distributed
 apiRouter.post('/releases/:id/complete', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {

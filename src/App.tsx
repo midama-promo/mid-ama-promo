@@ -26,6 +26,7 @@ import { ReleaseDetailModal } from './components/client/ReleaseDetailModal';
 import { ClientDashboard } from './components/client/ClientDashboard';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { PublicSharePage } from './components/public/PublicSharePage';
+import { SmartPreSavePage } from './components/public/SmartPreSavePage';
 import { NotificationCenterModal } from './components/client/NotificationCenterModal';
 import { Release } from './types';
 
@@ -355,12 +356,15 @@ function MainContent() {
   );
 }
 
+function AppRoute() {
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  const reserved = ['', 'index.html', 'favicon.ico', 'robots.txt'];
+  if (path && !reserved.includes(path) && !path.startsWith('api/') && !path.startsWith('uploads/')) {
+    return <SmartPreSavePage slug={decodeURIComponent(path.split('/')[0])} />;
+  }
+  return <><MotionSystem /><ThemeControl /><MainContent /></>;
+}
+
 export default function App() {
-  return (
-    <AuthProvider>
-      <MotionSystem />
-      <ThemeControl />
-      <MainContent />
-    </AuthProvider>
-  );
+  return <AuthProvider><AppRoute /></AuthProvider>;
 }

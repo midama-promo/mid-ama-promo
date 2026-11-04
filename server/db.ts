@@ -227,6 +227,10 @@ export interface NotificationLog {
   status: 'delivered' | 'queued';
 }
 
+export interface SmartPreSavePage {
+  id: string; slug: string; title: string; artist: string; artworkUrl?: string; soundblastUrl: string; dspLinks: Array<{ label: string; url: string }>; active: boolean; createdAt: string; updatedAt: string;
+}
+
 export interface DatabaseSchema {
   _version?: number;
   users: User[];
@@ -235,6 +239,7 @@ export interface DatabaseSchema {
   notifications: NotificationLog[];
   catalogue: CatalogueEntry[];
   withdrawals: WithdrawalRequest[];
+  presavePages: SmartPreSavePage[];
 }
 
 // ----------------------------------------------------
@@ -350,6 +355,7 @@ const INITIAL_DB: DatabaseSchema = {
   notifications: [],
   catalogue: [],
   withdrawals: [],
+  presavePages: [],
 };
 
 // ----------------------------------------------------
@@ -462,6 +468,7 @@ class Database {
     const notifications: NotificationLog[] = Array.isArray(parsed.notifications) ? parsed.notifications : [];
     const catalogue: CatalogueEntry[] = Array.isArray(parsed.catalogue) ? parsed.catalogue : [];
     const withdrawals: WithdrawalRequest[] = Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [];
+    const presavePages: SmartPreSavePage[] = Array.isArray(parsed.presavePages) ? parsed.presavePages : [];
 
     // Ensure designated platform administrator accounts exist idempotently
     // 1. Remoabetswe Molefi (Founder / Distribution Manager)
@@ -521,6 +528,7 @@ class Database {
       notifications,
       catalogue,
       withdrawals,
+      presavePages,
     };
   }
 
@@ -1142,9 +1150,18 @@ class Database {
       addUnique(data.enquiries, snapshot.enquiries, 'enquiriesAdded');
       addUnique(data.notifications, snapshot.notifications, 'notificationsAdded');
       addUnique(data.catalogue, snapshot.catalogue, 'catalogueAdded');
+      if (Array.isArray(snapshot.presavePages)) {
+        for (const page of snapshot.presavePages) if (page?.id && !data.presavePages.some(p => p.id === page.id)) data.presavePages.push(page);
+      }
       return result;
     });
   }
+
+  getPreSavePages(): SmartPreSavePage[] { return this.getAuthoritativeData().presavePages || []; }
+  findPreSavePageBySlug(slug: string): SmartPreSavePage | undefined { return this.getPreSavePages().find(p => p.slug.toLowerCase() === slug.toLowerCase()); }
+  createPreSavePage(page: SmartPreSavePage): SmartPreSavePage { return this.mutate(data => { if (!Array.isArray(data.presavePages)) data.presavePages = []; if (data.presavePages.some(p => p.slug.toLowerCase() === page.slug.toLowerCase())) throw new Error('That pre-save URL is already in use.'); data.presavePages.unshift(page); return page; }); }
+  updatePreSavePage(id: string, updates: Partial<SmartPreSavePage>): SmartPreSavePage | undefined { return this.mutate(data => { const page = (data.presavePages || []).find(p => p.id === id); if (!page) return undefined; Object.assign(page, updates); return page; }); }
+  deletePreSavePage(id: string): boolean { return this.mutate(data => { const before = (data.presavePages || []).length; data.presavePages = (data.presavePages || []).filter(p => p.id !== id); return data.presavePages.length !== before; }); }
 
   // Explicit safety block: destructive reset must NEVER be callable
   resetToClean() {

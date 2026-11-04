@@ -219,6 +219,14 @@ class ApiService {
     });
   }
 
+  async previewSmartPreSave(soundblastUrl: string): Promise<{ metadata: { title: string; artist: string; artworkUrl: string; dspLinks: Array<{label:string;url:string}> } }> {
+    return this.request('/api/admin/presave/preview', { method: 'POST', body: JSON.stringify({ soundblastUrl }) });
+  }
+  async getSmartPreSaves(): Promise<{ pages: any[] }> { return this.request('/api/admin/presave'); }
+  async createSmartPreSave(payload: any): Promise<{ page: any; message: string }> { return this.request('/api/admin/presave', { method: 'POST', body: JSON.stringify(payload) }); }
+  async updateSmartPreSave(id: string, payload: any): Promise<{ page: any }> { return this.request(`/api/admin/presave/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
+  async deleteSmartPreSave(id: string): Promise<{ message: string }> { return this.request(`/api/admin/presave/${id}`, { method: 'DELETE' }); }
+
   async updatePreSaveLinks(id: string, links: Array<{ id?: string; label: string; url: string }>): Promise<{ message: string; release: Release }> {
     return this.request<{ message: string; release: Release }>(`/api/releases/${id}/presave-links`, {
       method: 'PATCH',

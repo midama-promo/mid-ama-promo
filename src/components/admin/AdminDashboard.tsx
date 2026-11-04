@@ -39,6 +39,7 @@ import { Release, User, Enquiry, AdminStats, ReleaseStatus, WithdrawalRequest } 
 import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { CatalogueEntryModal } from './CatalogueEntryModal';
+import { SmartPreSaveManager } from './SmartPreSaveManager';
 
 interface AdminDashboardProps {
   onSelectRelease: (release: Release) => void;
@@ -60,7 +61,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [planDrafts, setPlanDrafts] = useState<Record<string, 'free' | 'starter'>>({});
   const [savingPlanClientId, setSavingPlanClientId] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'royalties' | 'settings'>('releases');
+  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'presave' | 'royalties' | 'settings'>('releases');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [releases, setReleases] = useState<Release[]>([]);
   const [clients, setClients] = useState<User[]>([]);
@@ -614,7 +615,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-neutral-800 gap-6 text-sm font-semibold">
+        <div className="flex border-b border-neutral-800 gap-6 text-sm font-semibold overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => {
               setActiveTab('releases');
@@ -656,6 +657,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <FolderOpen className="w-4 h-4 text-red-500" />
             <span>Catalogue ({catalogueEntries.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('presave')}
+            className={`pb-3 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'presave' ? 'border-red-600 text-white font-bold' : 'border-transparent text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Link2 className="w-4 h-4 text-red-500" />
+            <span>Smart Pre-Saves</span>
           </button>
 
           <button
@@ -714,6 +725,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* TAB: ROYALTIES & WITHDRAWALS */}
+        {activeTab === 'presave' && <SmartPreSaveManager />}
+
         {activeTab === 'royalties' && (
           <div className="space-y-6">
             <div>
