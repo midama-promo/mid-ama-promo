@@ -1559,18 +1559,45 @@ function isAllowedSmartlinkHost(hostname: string): boolean {
   return ['soundblast.pro', 'soundblast.de', 'feature.fm', 'ffm.to'].some(domain => host === domain || host.endsWith(`.${domain}`));
 }
 function extractSoundBlastMetadata(html: string, sourceUrl: string) {
+  const decodeHtml = (value: string) => value
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, dec) => String.fromCodePoint(Number(dec))).trim();
   const getMeta = (key: string) => {
     const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const patterns = [new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["']`, 'i'), new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["']`, 'i')];
-    for (const re of patterns) { const m = html.match(re); if (m?.[1]) return m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim(); }
+    const patterns = [
+      new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["']`, 'i'),
+      new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["']`, 'i')
+    ];
+    for (const re of patterns) { const m = html.match(re); if (m?.[1]) return decodeHtml(m[1]); }
     return '';
   };
-  const title = getMeta('og:title') || (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').replace(/<[^>]+>/g, '').trim();
-  const artworkUrl = getMeta('og:image');
-  const artist = getMeta('music:musician') || getMeta('og:description').split(/[|–—-]/)[0].trim();
+  const rawHeading = getMeta('og:title') || decodeHtml((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').replace(/<[^>]+>/g, ' '));
+  const artworkUrl = getMeta('og:image') || getMeta('twitter:image');
+  let title = getMeta('music:song') || getMeta('og:music:song') || '';
+  let artist = getMeta('music:musician') || getMeta('music:musician_description') || '';
+  const heading = rawHeading.replace(/\s*[|–—-]\s*(SoundBlast|Feature\.fm).*$/i, '').trim();
+  // Feature.fm / SoundBlast commonly publish the page title as "Track - Artist".
+  if (!title && heading) {
+    const split = heading.match(/^(.+?)\s+[–—-]\s+(.+)$/);
+    if (split) { title = split[1].trim(); if (!artist) artist = split[2].trim(); }
+    else title = heading;
+  }
+  if (!artist) {
+    const description = getMeta('og:description') || getMeta('description');
+    const match = description.match(/(?:by|artist[:\s]+)\s*([^|,;]+)/i);
+    if (match) artist = match[1].trim();
+  }
+
   const found = new Map<string, string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let match: RegExpExecArray | null;
+  const storeNames: Record<string, string> = {
+    spotify: 'Spotify', apple: 'Apple Music', applemusic: 'Apple Music', deezer: 'Deezer',
+    amazon: 'Amazon Music', amazonmusic: 'Amazon Music', soundcloud: 'SoundCloud',
+    tidal: 'TIDAL', youtubemusic: 'YouTube Music', youtube: 'YouTube Music',
+    pandora: 'Pandora', napster: 'Napster', qobuz: 'Qobuz', audiomack: 'Audiomack',
+    boomplay: 'Boomplay', anghami: 'Anghami'
+  };
   const classify = (url: string, label: string) => {
     const text = `${label} ${url}`.toLowerCase();
     const entries: Array<[string, RegExp]> = [
@@ -1580,20 +1607,52 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
     ];
     return entries.find(([, re]) => re.test(text))?.[0] || '';
   };
+  const anchorRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
   while ((match = anchorRe.exec(html)) !== null) {
-    const url = match[1].replace(/&amp;/g, '&');
-    let label = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    const dsp = classify(url, label);
-    if (dsp && /^https?:\/\//i.test(url)) found.set(dsp, url);
+    const href = decodeHtml(match[1]);
+    let parsed: URL;
+    try { parsed = new URL(href, sourceUrl); } catch { continue; }
+    // Feature.fm's visible DSP buttons point to api.ffm.to action endpoints.
+    // The cd query parameter is a base64url JSON payload containing the store id.
+    if (parsed.hostname.toLowerCase() === 'api.ffm.to' && /^\/sl\/e\/(?:ps|po)\//.test(parsed.pathname)) {
+      const cd = parsed.searchParams.get('cd') || '';
+      try {
+        const payload = JSON.parse(Buffer.from(cd, 'base64url').toString('utf8'));
+        const service = String(payload.srvc || payload.service || '').toLowerCase();
+        const label = storeNames[service] || service.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        if (label && /^https:$/.test(parsed.protocol)) found.set(label, parsed.toString());
+      } catch { /* Ignore malformed tracking payloads rather than inventing a destination. */ }
+      continue;
+    }
+    const labelText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const dsp = classify(parsed.toString(), labelText);
+    if (dsp && ['http:', 'https:'].includes(parsed.protocol)) found.set(dsp, parsed.toString());
   }
-  // Feature.fm pages may serialize destinations in page data rather than anchors.
-  const urlRe = /https?:\\?\/\\?\/[^\s"'<>\\]+/g;
-  for (const raw of html.match(urlRe) || []) {
-    const url = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&').replace(/[),]+$/g, '');
-    const dsp = classify(url, '');
-    if (dsp && !found.has(dsp) && /^https?:\/\//i.test(url)) found.set(dsp, url);
+  // Some Feature.fm versions serialize the same action URLs in script state.
+  // Decode only known api.ffm.to action URLs and retain their original signed query string.
+  const actionRe = /https?:\\?\/\\?\/api\.ffm\.to\\?\/sl\\?\/e\\?\/(?:ps|po)\\?\/[A-Za-z0-9_-]+(?:\?[^\s"'<>\\]+)?/g;
+  for (const raw of html.match(actionRe) || []) {
+    const candidate = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&').replace(/[),]+$/g, '');
+    try {
+      const parsed = new URL(candidate);
+      const cd = parsed.searchParams.get('cd') || '';
+      const payload = JSON.parse(Buffer.from(cd, 'base64url').toString('utf8'));
+      const service = String(payload.srvc || payload.service || '').toLowerCase();
+      const label = storeNames[service] || service.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if (label && parsed.hostname === 'api.ffm.to') found.set(label, parsed.toString());
+    } catch { /* Ignore malformed serialized entries. */ }
   }
-  return { title: title.replace(/\s*[|–—-]\s*(SoundBlast|Feature\.fm).*$/i, '').trim(), artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
+  // Fallback for ordinary, non-Feature.fm smartlink pages.
+  if (found.size === 0) {
+    const urlRe = /https?:\\?\/\\?\/[A-Za-z0-9.-]+[^\s"'<>\\]*/g;
+    for (const raw of html.match(urlRe) || []) {
+      const url = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&').replace(/[),]+$/g, '');
+      const dsp = classify(url, '');
+      if (dsp && /^https?:\/\//i.test(url)) { try { const u = new URL(url); if (!['api.ffm.to', 'ffm.to'].includes(u.hostname)) found.set(dsp, u.toString()); } catch {} }
+    }
+  }
+  return { title, artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
 }
 
 apiRouter.post('/admin/presave/preview', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
@@ -1602,10 +1661,23 @@ apiRouter.post('/admin/presave/preview', authMiddleware, adminOnly, async (req: 
   try { parsed = new URL(rawUrl); } catch { return res.status(400).json({ error: 'Enter a valid SoundBlast / Feature.fm smartlink URL.' }); }
   if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'For security, use an HTTPS SoundBlast or Feature.fm smartlink URL.' });
   try {
-    const response = await fetch(parsed.toString(), { headers: { 'User-Agent': 'MidAmaPromoSmartLink/1.0', 'Accept': 'text/html' }, redirect: 'error', signal: AbortSignal.timeout(12000) });
+    // Follow only a small number of HTTPS redirects that remain on approved smartlink hosts.
+    let currentUrl = parsed;
+    let response: Awaited<ReturnType<typeof fetch>> | undefined;
+    for (let hop = 0; hop < 5; hop++) {
+      response = await fetch(currentUrl.toString(), { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MidAmaPromoSmartLink/1.0)', 'Accept': 'text/html,application/xhtml+xml' }, redirect: 'manual', signal: AbortSignal.timeout(12000) });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get('location');
+      if (!location) break;
+      const nextUrl = new URL(location, currentUrl);
+      if (nextUrl.protocol !== 'https:' || !isAllowedSmartlinkHost(nextUrl.hostname)) return res.status(400).json({ error: 'The smartlink redirects outside the supported SoundBlast / Feature.fm domains.' });
+      currentUrl = nextUrl;
+    }
+    if (!response) return res.status(502).json({ error: 'Could not read the source smartlink.' });
+    if ([301, 302, 303, 307, 308].includes(response.status)) return res.status(502).json({ error: 'The source smartlink redirected too many times.' });
     if (!response.ok) return res.status(502).json({ error: `The source page returned HTTP ${response.status}.` });
     const html = (await response.text()).slice(0, 3_000_000);
-    const metadata = extractSoundBlastMetadata(html, parsed.toString());
+    const metadata = extractSoundBlastMetadata(html, currentUrl.toString());
     if (!metadata.title && metadata.dspLinks.length === 0) return res.status(422).json({ error: 'The source page did not expose its track details or DSP destinations. You can still create the page by entering the track title and DSP links manually.' });
     res.json({ metadata });
   } catch (error: any) {
