@@ -54,13 +54,13 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
     return () => { live = false; };
   }, [slug]);
 
-  return <main className="relative isolate min-h-screen overflow-hidden bg-[#08090d] px-4 py-7 text-white sm:px-6 sm:py-12">
+  return <main className="ma-presave-page relative isolate min-h-screen overflow-hidden bg-[#08090d] px-4 py-7 text-white sm:px-6 sm:py-12">
     {page?.artworkUrl && <div aria-hidden="true" className="fixed inset-0 -z-20 scale-110 bg-cover bg-center opacity-35 blur-3xl" style={{ backgroundImage: `url("${page.artworkUrl.replace(/"/g, '')}")` }}/ >}
-    <div aria-hidden="true" className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(125,30,52,0.28),transparent_55%),linear-gradient(180deg,rgba(5,7,12,0.76),rgba(5,7,12,0.94))]"/>
+    <div aria-hidden="true" className="ma-presave-overlay fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(125,30,52,0.28),transparent_55%),linear-gradient(180deg,rgba(5,7,12,0.76),rgba(5,7,12,0.94))]"/>
     <div className="mx-auto w-full max-w-2xl">
       <a href="/" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/25 px-4 py-2 text-xs font-semibold text-white/80 backdrop-blur-xl transition hover:border-white/25 hover:text-white"><ArrowLeft size={14}/> Mid-Ama Promo</a>
       {loading ? <div className="flex justify-center py-40 text-white/70"><Loader2 className="animate-spin"/></div> : missing || !page ? <div className="mt-16 rounded-[2rem] border border-white/10 bg-black/45 p-10 text-center shadow-2xl backdrop-blur-2xl"><Music2 size={38} className="mx-auto mb-4 text-white/40"/><h1 className="text-2xl font-extrabold tracking-tight">Pre-save page unavailable</h1><p className="mt-2 text-sm text-white/70">This link may have been removed or deactivated.</p></div> : <>
-        <section className="relative mt-8 overflow-hidden rounded-[2rem] border border-white/15 bg-[#101116]/75 px-5 pb-7 pt-8 shadow-[0_30px_100px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:mt-12 sm:px-12 sm:pb-10 sm:pt-11">
+        <section className="ma-presave-panel relative mt-8 overflow-hidden rounded-[2rem] border border-white/15 bg-[#101116]/75 px-5 pb-7 pt-8 shadow-[0_30px_100px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:mt-12 sm:px-12 sm:pb-10 sm:pt-11">
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-red-500/10 to-transparent"/>
           <div className="relative text-center">
             <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-red-300/20 bg-red-500/10 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.24em] text-red-200"><Sparkles size={12}/> Mid-Ama Promo Pre-Save</div>
@@ -73,7 +73,7 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
             <p className="mx-auto mt-7 max-w-md text-sm leading-6 text-white/80">Choose your favourite music platform below and pre-save this release.</p>
           </div>
           <div className="relative mt-7 grid gap-3 sm:mt-8">
-            {page.dspLinks.map((dsp, i) => <a key={`${dsp.label}-${i}`} href={dsp.url} target="_blank" rel="noopener noreferrer" className="group flex min-h-[76px] items-center gap-4 rounded-2xl border border-white/12 bg-white/[0.075] px-4 py-3.5 text-left shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-red-300/40 hover:bg-white/[0.13] focus:outline-none focus:ring-2 focus:ring-red-300/70 sm:px-5">
+            {page.dspLinks.map((dsp, i) => <a key={`${dsp.label}-${i}`} href={dsp.url} target="_blank" rel="noopener noreferrer" className="ma-presave-dsp group flex min-h-[76px] items-center gap-4 rounded-2xl border border-white/12 bg-white/[0.075] px-4 py-3.5 text-left shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-red-300/40 hover:bg-white/[0.13] focus:outline-none focus:ring-2 focus:ring-red-300/70 sm:px-5">
               <DspBrand label={dsp.label}/>
               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-extrabold text-white sm:text-base">{dsp.label}</span><span className="mt-1 block text-[11px] font-medium text-white/65">Pre-save on {dsp.label}</span></span>
               <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-red-200/20 bg-red-500/15 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-red-100 transition group-hover:bg-red-500/25">Pre-save <ExternalLink size={12}/></span>
@@ -83,6 +83,24 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
         </section>
       </>}
     </div>
-    <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');`}</style>
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+      /* The public pre-save page has its own contrast system and is not affected by app-wide text overrides. */
+      html:not([data-theme=\"light\"]) .ma-presave-page { color:#f8fafc !important; color-scheme:dark; }
+      html:not([data-theme=\"light\"]) .ma-presave-page [class*=\"text-white\"],
+      html:not([data-theme=\"light\"]) .ma-presave-page [class*=\"text-neutral-\"] { color:#f1f5f9 !important; }
+      html:not([data-theme=\"light\"]) .ma-presave-page .ma-presave-panel { background:rgba(13,15,22,.88) !important; border-color:rgba(255,255,255,.19) !important; }
+      html:not([data-theme=\"light\"]) .ma-presave-page .ma-presave-dsp { background:rgba(255,255,255,.09) !important; border-color:rgba(255,255,255,.17) !important; }
+      html:not([data-theme=\"light\"]) .ma-presave-page .ma-presave-overlay { background:linear-gradient(180deg,rgba(3,5,10,.60),rgba(3,5,10,.92)) !important; }
+      html[data-theme=\"light\"] .ma-presave-page { color:#171923 !important; color-scheme:light; background:#f4f4f7 !important; }
+      html[data-theme=\"light\"] .ma-presave-page [class*=\"text-white\"],
+      html[data-theme=\"light\"] .ma-presave-page [class*=\"text-neutral-\"] { color:#20212a !important; }
+      html[data-theme=\"light\"] .ma-presave-page .ma-presave-panel { background:rgba(250,250,252,.93) !important; border-color:rgba(20,22,30,.16) !important; box-shadow:0 30px 90px rgba(20,20,30,.16) !important; }
+      html[data-theme=\"light\"] .ma-presave-page .ma-presave-dsp { background:rgba(255,255,255,.92) !important; border-color:rgba(20,22,30,.15) !important; box-shadow:0 8px 24px rgba(20,20,30,.07) !important; }
+      html[data-theme=\"light\"] .ma-presave-page .ma-presave-overlay { background:linear-gradient(180deg,rgba(248,248,252,.76),rgba(248,248,252,.94)) !important; }
+      html[data-theme=\"light\"] .ma-presave-page [class*=\"text-red-\"] { color:#a51f35 !important; }
+      html[data-theme=\"light\"] .ma-presave-page .ma-presave-dsp [class*=\"bg-red-\"] { background:rgba(190,35,55,.10) !important; border-color:rgba(165,31,53,.20) !important; }
+      html[data-theme=\"light\"] .ma-presave-page a[href=\"/\"] { color:#20212a !important; background:rgba(255,255,255,.82) !important; border-color:rgba(20,22,30,.16) !important; }
+    `}</style>
   </main>;
 };
