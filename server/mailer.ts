@@ -1,6 +1,67 @@
 import { db } from './db.ts';
 import type { NotificationLog, Release } from './db.ts';
 
+export interface AnnouncementEmailTarget {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+export interface AnnouncementEmailResult {
+  userId: string;
+  email: string;
+  success: boolean;
+  resendId?: string;
+  error?: string;
+}
+
+const ANNOUNCEMENT_EMAIL_FROM = process.env.EMAIL_FROM || 'Mid-Ama Promo <no-reply@midamapromo.co.za>'; // Same verified sender configuration as OTP
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Sends one Resend batch. The OTP sender in server/otp.ts is intentionally untouched. */
+export async function sendAnnouncementBatch(
+  targets: AnnouncementEmailTarget[],
+  subject: string,
+  message: string,
+  idempotencyKey = `midama-announcement-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+): Promise<AnnouncementEmailResult[]> {
+  if (!targets.length) return [];
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY is not configured on the server.');
+  if (targets.length > 100) throw new Error('Announcement batches cannot exceed 100 recipients.');
+
+  const emails = targets.map(target => {
+    const greeting = target.name?.trim() ? `Hello ${target.name.trim()},` : 'Hello,';
+    const text = `${greeting}\n\n${message}\n\nKind regards,\nMid-Ama Promo Support\nhttps://distro.midamapromo.co.za/`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#171717;line-height:1.65"><div style="background:#111;color:#fff;padding:22px 26px;border-bottom:4px solid #dc2626"><strong style="font-size:20px;letter-spacing:.3px">MID-AMA PROMO</strong><div style="font-size:12px;color:#d4d4d4;margin-top:4px">Music Distribution · Client Support</div></div><div style="padding:28px 26px;background:#fff"><p>${escapeHtml(greeting)}</p><div style="white-space:pre-wrap">${escapeHtml(message)}</div><p style="margin-top:28px">Kind regards,<br><strong>Mid-Ama Promo Support</strong></p></div><div style="padding:16px 26px;background:#f5f5f5;color:#737373;font-size:12px">Need assistance? Contact <a href="mailto:support@midamapromo.co.za">support@midamapromo.co.za</a>.<br><a href="https://distro.midamapromo.co.za/">distro.midamapromo.co.za</a></div></div>`;
+    return { from: ANNOUNCEMENT_EMAIL_FROM, to: [target.email], subject, text, html };
+  });
+
+  const response = await fetch('https://api.resend.com/emails/batch', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey.slice(0, 256) },
+    body: JSON.stringify(emails),
+  });
+  const responseText = await response.text();
+  if (!response.ok) throw new Error(`Resend batch delivery failed (${response.status}): ${responseText.slice(0, 1000)}`);
+
+  let payload: any = {};
+  try { payload = responseText ? JSON.parse(responseText) : {}; } catch (_) {}
+  const sentItems = Array.isArray(payload?.data) ? payload.data : [];
+  if (sentItems.length !== targets.length) {
+    throw new Error('Resend returned an unexpected batch response. Delivery status may be uncertain; check the Resend logs before attempting another send.');
+  }
+  return targets.map((target, index) => ({
+    userId: target.userId,
+    email: target.email,
+    success: true,
+    resendId: sentItems[index]?.id,
+  }));
+}
+
 interface SendNotificationOptions {
   recipientEmail: string;
   recipientName: string;

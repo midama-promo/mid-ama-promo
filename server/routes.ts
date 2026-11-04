@@ -28,7 +28,7 @@ import type {
   WithdrawalRequest,
   SmartPreSavePage,
 } from './db.ts';
-import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail } from './mailer.ts';
+import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAnnouncementBatch } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
 import {
   remotePersistenceConfigured,
@@ -2085,6 +2085,110 @@ apiRouter.get('/admin/clients', authMiddleware, adminOnly, (_req: AuthenticatedR
   });
 
   res.json({ clients: clientsWithStats });
+});
+
+// Client announcement campaigns. Recipient addresses are returned only to the authenticated administrator.
+apiRouter.get('/admin/email-campaigns/recipients', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  const recipients = db.getUsers()
+    .filter(u => u.role === 'client' && typeof u.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email.trim()))
+    .map(u => ({ id: u.id, email: u.email.trim(), name: u.name || [u.realFirstName, u.realSurname].filter(Boolean).join(' ') || 'Client', status: u.status }));
+  res.json({ recipients });
+});
+
+apiRouter.get('/admin/email-campaigns', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  res.json({ campaigns: db.getEmailCampaigns() });
+});
+
+apiRouter.post('/admin/email-campaigns/test', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const subject = String(req.body?.subject || '').trim();
+  const message = String(req.body?.message || '').trim();
+  if (!subject || subject.length > 200 || !message || message.length > 20000) {
+    return res.status(400).json({ error: 'Enter a subject (maximum 200 characters) and message (maximum 20,000 characters).' });
+  }
+  try {
+    const results = await sendAnnouncementBatch([{ userId: req.user!.id, email: req.user!.email, name: req.user!.name || 'Administrator' }], `[TEST] ${subject}`, message);
+    if (!results[0]?.success) throw new Error(results[0]?.error || 'Test email was not accepted by Resend.');
+    res.json({ message: `Test email accepted for ${req.user!.email}.`, recipient: req.user!.email });
+  } catch (error: any) {
+    res.status(502).json({ error: error?.message || 'Test email failed.' });
+  }
+});
+
+apiRouter.post('/admin/email-campaigns/send', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const subject = String(req.body?.subject || '').trim();
+  const message = String(req.body?.message || '').trim();
+  const requestedIds = Array.isArray(req.body?.recipientIds) ? req.body.recipientIds.map((id: unknown) => String(id)) : [];
+  const recipientIds = [...new Set(requestedIds)].slice(0, 1000);
+  if (!subject || subject.length > 200 || !message || message.length > 20000) {
+    return res.status(400).json({ error: 'Enter a subject (maximum 200 characters) and message (maximum 20,000 characters).' });
+  }
+  if (!recipientIds.length || requestedIds.length > 1000) {
+    return res.status(400).json({ error: 'Select between 1 and 1,000 clients.' });
+  }
+
+  const byId = new Map<string, User>(db.getUsers().filter(u => u.role === 'client').map(u => [u.id, u] as const));
+  const chosen = recipientIds.map(id => byId.get(id));
+  if (chosen.some(u => !u || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email.trim()))) {
+    return res.status(400).json({ error: 'One or more selected clients are no longer eligible. Refresh the recipient list and try again.' });
+  }
+  const seenEmails = new Set<string>();
+  const targets = chosen.filter((u): u is User => !!u).filter(u => {
+    const email = u.email.trim().toLowerCase();
+    if (seenEmails.has(email)) return false;
+    seenEmails.add(email);
+    return true;
+  }).map(u => ({ userId: u.id, email: u.email.trim(), name: u.name || [u.realFirstName, u.realSurname].filter(Boolean).join(' ') || 'Client' }));
+
+  const fingerprint = crypto.createHash('sha256').update(`${subject.toLowerCase()}\n${message}`).digest('hex');
+  const sender = process.env.EMAIL_FROM || 'Mid-Ama Promo <no-reply@midamapromo.co.za>'; // Same sender identity used by OTP
+  const campaignId = `campaign_${crypto.randomUUID()}`;
+  try {
+    db.createEmailCampaign({
+      id: campaignId,
+      fingerprint,
+      subject,
+      message,
+      sender,
+      createdAt: new Date().toISOString(),
+      createdBy: req.user!.email,
+      status: 'sending',
+      recipients: targets.map(t => ({ ...t, status: 'pending' })),
+    });
+  } catch (error: any) {
+    return res.status(409).json({ error: error?.message || 'This announcement may already have been sent.' });
+  }
+
+  // Resend batch API supports up to 100 messages per request. Smaller chunks
+  // keep each operation bounded and let us persist a result after every batch.
+  for (let offset = 0; offset < targets.length; offset += 50) {
+    const batch = targets.slice(offset, offset + 50);
+    try {
+      const outcomes = await sendAnnouncementBatch(batch, subject, message, `${campaignId}/chunk-${Math.floor(offset / 50)}`);
+      const byUser = new Map(outcomes.map(result => [result.userId, result]));
+      const campaign = db.getEmailCampaigns().find(c => c.id === campaignId);
+      if (campaign) {
+        const updatedRecipients = campaign.recipients.map(recipient => {
+          const result = byUser.get(recipient.userId);
+          return result ? { ...recipient, status: result.success ? 'sent' as const : 'failed' as const, sentAt: result.success ? new Date().toISOString() : undefined, resendId: result.resendId, error: result.error } : recipient;
+        });
+        db.updateEmailCampaign(campaignId, { recipients: updatedRecipients });
+      }
+    } catch (error: any) {
+      const detail = String(error?.message || 'Resend batch failed').slice(0, 500);
+      const campaign = db.getEmailCampaigns().find(c => c.id === campaignId);
+      if (campaign) {
+        const batchIds = new Set(batch.map(t => t.userId));
+        db.updateEmailCampaign(campaignId, { recipients: campaign.recipients.map(r => batchIds.has(r.userId) ? { ...r, status: 'failed', error: detail } : r) });
+      }
+    }
+  }
+
+  const finished = db.getEmailCampaigns().find(c => c.id === campaignId)!;
+  const sent = finished.recipients.filter(r => r.status === 'sent').length;
+  const failed = finished.recipients.filter(r => r.status === 'failed').length;
+  const status = sent === finished.recipients.length ? 'completed' : sent > 0 ? 'partial' : 'failed';
+  db.updateEmailCampaign(campaignId, { status });
+  res.json({ campaignId, status, sent, failed, total: finished.recipients.length, message: `Campaign finished: ${sent} sent, ${failed} failed.` });
 });
 
 // Admin Register Client Manually (Client creates their password upon first visit, or admin sets it)

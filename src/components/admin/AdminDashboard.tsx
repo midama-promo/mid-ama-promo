@@ -40,6 +40,7 @@ import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { CatalogueEntryModal } from './CatalogueEntryModal';
 import { SmartPreSaveManager } from './SmartPreSaveManager';
+import { ClientEmailCampaignManager } from './ClientEmailCampaignManager';
 
 interface AdminDashboardProps {
   onSelectRelease: (release: Release) => void;
@@ -61,7 +62,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [planDrafts, setPlanDrafts] = useState<Record<string, 'free' | 'starter'>>({});
   const [savingPlanClientId, setSavingPlanClientId] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'enquiries' | 'catalogue' | 'presave' | 'royalties' | 'settings'>('releases');
+  const [activeTab, setActiveTab] = useState<'releases' | 'clients' | 'campaigns' | 'enquiries' | 'catalogue' | 'presave' | 'royalties' | 'settings'>('releases');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [releases, setReleases] = useState<Release[]>([]);
   const [clients, setClients] = useState<User[]>([]);
@@ -640,6 +641,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('campaigns')}
+            className={`pb-3 border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'campaigns' ? 'border-red-600 text-white font-bold' : 'border-transparent text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Mail className="w-4 h-4 text-red-500" />
+            <span>Client Email Campaigns</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('enquiries')}
             className={`pb-3 border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === 'enquiries' ? 'border-red-600 text-white font-bold' : 'border-transparent text-neutral-400 hover:text-white'
@@ -689,6 +700,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span>Settings</span>
           </button>
         </div>
+
+        {/* TAB: CATALOGUE */}
+        {activeTab === 'campaigns' && <ClientEmailCampaignManager />}
 
         {/* TAB: CATALOGUE */}
         {activeTab === 'catalogue' && (

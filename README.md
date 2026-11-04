@@ -22,7 +22,7 @@ Set these in Render only when you explicitly approve deployment. For local devel
 | `MID_AMA_SESSION_SECRET` | Long random secret used to sign application sessions. |
 | `OTP_HASH_SECRET` | Optional separate long random secret for hashing OTP codes; defaults to the session secret. |
 | `RESEND_API_KEY` | Resend API key. |
-| `EMAIL_FROM` | Verified sender, e.g. `Mid-Ama Promo <no-reply@your-verified-domain>`. |
+| `EMAIL_FROM` | Verified sender shared by OTP login emails and admin client campaigns; set to `Mid-Ama Promo <no-reply@midamapromo.co.za>`. |
 | `ADMIN_NOTIFICATION_EMAIL` | Admin notification recipient. |
 | `R2_ACCOUNT_ID` | Cloudflare account ID. |
 | `R2_BUCKET_NAME` | Private R2 bucket name. |

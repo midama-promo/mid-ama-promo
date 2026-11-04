@@ -9,6 +9,22 @@ export interface PlanUsageResponse {
   prices: { premium: number };
 }
 
+export interface EmailCampaignRecipientView {
+  id: string;
+  email: string;
+  name: string;
+  status: string;
+}
+
+export interface EmailCampaignHistoryItem {
+  id: string;
+  subject: string;
+  sender: string;
+  createdAt: string;
+  status: 'sending' | 'completed' | 'partial' | 'failed';
+  recipients: Array<{ userId: string; email: string; name: string; status: 'pending' | 'sent' | 'failed'; sentAt?: string; error?: string }>;
+}
+
 class ApiService {
   private token: string | null = null;
 
@@ -383,6 +399,22 @@ class ApiService {
 
   async getAdminClients(): Promise<{ clients: User[] }> {
     return this.request<{ clients: User[] }>('/api/admin/clients');
+  }
+
+  async getEmailCampaignRecipients(): Promise<{ recipients: EmailCampaignRecipientView[] }> {
+    return this.request('/api/admin/email-campaigns/recipients');
+  }
+
+  async getEmailCampaigns(): Promise<{ campaigns: EmailCampaignHistoryItem[] }> {
+    return this.request('/api/admin/email-campaigns');
+  }
+
+  async sendEmailCampaignTest(payload: { subject: string; message: string }): Promise<{ message: string; recipient: string }> {
+    return this.request('/api/admin/email-campaigns/test', { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  async sendEmailCampaign(payload: { subject: string; message: string; recipientIds: string[] }): Promise<{ campaignId: string; status: string; sent: number; failed: number; total: number; message: string }> {
+    return this.request('/api/admin/email-campaigns/send', { method: 'POST', body: JSON.stringify(payload) });
   }
 
   async registerClient(payload: { email: string; name: string; realFirstName?: string; realSurname?: string; phone?: string; country?: string }): Promise<{ message: string; client: User }> {

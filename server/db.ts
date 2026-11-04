@@ -227,6 +227,28 @@ export interface NotificationLog {
   status: 'delivered' | 'queued';
 }
 
+export interface EmailCampaignRecipient {
+  userId: string;
+  email: string;
+  name: string;
+  status: 'pending' | 'sent' | 'failed';
+  sentAt?: string;
+  resendId?: string;
+  error?: string;
+}
+
+export interface EmailCampaign {
+  id: string;
+  fingerprint: string;
+  subject: string;
+  message: string;
+  sender: string;
+  createdAt: string;
+  createdBy: string;
+  status: 'sending' | 'completed' | 'partial' | 'failed';
+  recipients: EmailCampaignRecipient[];
+}
+
 export interface SmartPreSavePage {
   id: string; slug: string; title: string; artist: string; artworkUrl?: string; soundblastUrl: string; dspLinks: Array<{ label: string; url: string }>; active: boolean; createdAt: string; updatedAt: string;
 }
@@ -240,6 +262,7 @@ export interface DatabaseSchema {
   catalogue: CatalogueEntry[];
   withdrawals: WithdrawalRequest[];
   presavePages: SmartPreSavePage[];
+  emailCampaigns: EmailCampaign[];
 }
 
 // ----------------------------------------------------
@@ -356,6 +379,7 @@ const INITIAL_DB: DatabaseSchema = {
   catalogue: [],
   withdrawals: [],
   presavePages: [],
+  emailCampaigns: [],
 };
 
 // ----------------------------------------------------
@@ -469,6 +493,7 @@ class Database {
     const catalogue: CatalogueEntry[] = Array.isArray(parsed.catalogue) ? parsed.catalogue : [];
     const withdrawals: WithdrawalRequest[] = Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [];
     const presavePages: SmartPreSavePage[] = Array.isArray(parsed.presavePages) ? parsed.presavePages : [];
+    const emailCampaigns: EmailCampaign[] = Array.isArray(parsed.emailCampaigns) ? parsed.emailCampaigns : [];
 
     // Ensure designated platform administrator accounts exist idempotently
     // 1. Remoabetswe Molefi (Founder / Distribution Manager)
@@ -529,6 +554,7 @@ class Database {
       catalogue,
       withdrawals,
       presavePages,
+      emailCampaigns,
     };
   }
 
@@ -788,6 +814,39 @@ class Database {
         return { ...u, role: 'admin', status: 'active' };
       }
       return { ...u };
+    });
+  }
+
+  getEmailCampaigns(): EmailCampaign[] {
+    return this.getAuthoritativeData().emailCampaigns || [];
+  }
+
+  createEmailCampaign(campaign: EmailCampaign): EmailCampaign {
+    return this.mutate((data) => {
+      data.emailCampaigns ||= [];
+      const alreadyAttempted = new Set<string>();
+      for (const previous of data.emailCampaigns) {
+        if (previous.fingerprint !== campaign.fingerprint) continue;
+        for (const recipient of previous.recipients || []) {
+          alreadyAttempted.add(recipient.userId);
+        }
+      }
+      const duplicates = campaign.recipients.filter(r => alreadyAttempted.has(r.userId));
+      if (duplicates.length) {
+        throw new Error(`This announcement was already attempted for ${duplicates.length} selected client(s). Remove those clients to avoid duplicate delivery.`);
+      }
+      data.emailCampaigns.unshift(campaign);
+      return campaign;
+    });
+  }
+
+  updateEmailCampaign(id: string, updates: Partial<EmailCampaign>): EmailCampaign | undefined {
+    return this.mutate((data) => {
+      data.emailCampaigns ||= [];
+      const index = data.emailCampaigns.findIndex(c => c.id === id);
+      if (index < 0) return undefined;
+      data.emailCampaigns[index] = { ...data.emailCampaigns[index], ...updates };
+      return data.emailCampaigns[index];
     });
   }
 
