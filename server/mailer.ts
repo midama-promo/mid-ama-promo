@@ -5,6 +5,7 @@ export interface AnnouncementEmailTarget {
   userId: string;
   email: string;
   name: string;
+  isLegacy?: boolean;
 }
 
 export interface AnnouncementEmailResult {
@@ -34,9 +35,12 @@ export async function sendAnnouncementBatch(
   if (targets.length > 100) throw new Error('Announcement batches cannot exceed 100 recipients.');
 
   const emails = targets.map(target => {
-    const greeting = target.name?.trim() ? `Hello ${target.name.trim()},` : 'Hello,';
+    const greeting = target.isLegacy
+      ? `${target.name.trim()}\n\nEmail: ${target.email}`
+      : (target.name?.trim() ? `Hello ${target.name.trim()},` : 'Hello,');
+    const htmlGreeting = target.isLegacy ? target.name.trim() : greeting;
     const text = `${greeting}\n\n${message}\n\nKind regards,\nMid-Ama Promo Support\nhttps://distro.midamapromo.co.za/`;
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#171717;line-height:1.65"><div style="background:#111;color:#fff;padding:22px 26px;border-bottom:4px solid #dc2626"><strong style="font-size:20px;letter-spacing:.3px">MID-AMA PROMO</strong><div style="font-size:12px;color:#d4d4d4;margin-top:4px">Music Distribution · Client Support</div></div><div style="padding:28px 26px;background:#fff"><p>${escapeHtml(greeting)}</p><div style="white-space:pre-wrap">${escapeHtml(message)}</div><p style="margin-top:28px">Kind regards,<br><strong>Mid-Ama Promo Support</strong></p></div><div style="padding:16px 26px;background:#f5f5f5;color:#737373;font-size:12px">Need assistance? Contact <a href="mailto:support@midamapromo.co.za">support@midamapromo.co.za</a>.<br><a href="https://distro.midamapromo.co.za/">distro.midamapromo.co.za</a></div></div>`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#171717;line-height:1.65"><div style="background:#111;color:#fff;padding:22px 26px;border-bottom:4px solid #dc2626"><strong style="font-size:20px;letter-spacing:.3px">MID-AMA PROMO</strong><div style="font-size:12px;color:#d4d4d4;margin-top:4px">Music Distribution · Client Support</div></div><div style="padding:28px 26px;background:#fff"><p>${escapeHtml(htmlGreeting)}</p><div style="white-space:pre-wrap">${escapeHtml(target.isLegacy ? `Email: ${target.email}\n\n${message}` : message)}</div><p style="margin-top:28px">Kind regards,<br><strong>Mid-Ama Promo Support</strong></p></div><div style="padding:16px 26px;background:#f5f5f5;color:#737373;font-size:12px">Need assistance? Contact <a href="mailto:midnightamapiano@yahoo.com">midnightamapiano@yahoo.com</a>.<br><a href="https://distro.midamapromo.co.za/">distro.midamapromo.co.za</a></div></div>`;
     return { from: ANNOUNCEMENT_EMAIL_FROM, to: [target.email], subject, text, html };
   });
 

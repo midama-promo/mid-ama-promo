@@ -35,3 +35,14 @@ No campaign has been sent by this source update. No production database, Render 
 ## Validation performed here
 
 The modified TypeScript/TSX files passed TypeScript transpilation syntax checks. A full dependency-backed TypeScript check and Vite production build could not be run in this environment because dependency installation timed out. Run `npm install` and `npm run build` in the project environment before deploying.
+
+
+## Legacy Supabase campaign recipients
+
+- The 50 former-client email addresses from the supplied CSV are stored in `server/legacy-client-emails.ts` as a campaign-only static recipient list.
+- The administrator recipient API exposes them under the separate `Legacy Supabase Clients` group with stable `legacy:<lowercase-email>` IDs.
+- Legacy addresses are not inserted into `users`, do not create accounts, and do not change releases, catalogue records, royalties, or R2 files.
+- Legacy emails begin with the recipient's email prefix, followed by an `Email: <address>` line, then the announcement body.
+- The campaign footer and default announcement direct support requests to `midnightamapiano@yahoo.com`.
+- Campaigns continue to use the existing `EMAIL_FROM` sender configuration shared with OTP. `server/otp.ts` is unchanged.
+- No campaign email is sent during development or ZIP preparation.

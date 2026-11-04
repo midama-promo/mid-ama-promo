@@ -30,6 +30,7 @@ import type {
 } from './db.ts';
 import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAnnouncementBatch } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
+import { LEGACY_SUPABASE_CLIENT_EMAILS } from './legacy-client-emails.ts';
 import {
   remotePersistenceConfigured,
   remoteStorageConfigured,
@@ -2089,10 +2090,14 @@ apiRouter.get('/admin/clients', authMiddleware, adminOnly, (_req: AuthenticatedR
 
 // Client announcement campaigns. Recipient addresses are returned only to the authenticated administrator.
 apiRouter.get('/admin/email-campaigns/recipients', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
-  const recipients = db.getUsers()
+  const currentRecipients = db.getUsers()
     .filter(u => u.role === 'client' && typeof u.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email.trim()))
-    .map(u => ({ id: u.id, email: u.email.trim(), name: u.name || [u.realFirstName, u.realSurname].filter(Boolean).join(' ') || 'Client', status: u.status }));
-  res.json({ recipients });
+    .map(u => ({ id: u.id, email: u.email.trim(), name: u.name || [u.realFirstName, u.realSurname].filter(Boolean).join(' ') || 'Client', status: u.status, group: 'current' }));
+  const legacyRecipients = LEGACY_SUPABASE_CLIENT_EMAILS
+    .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    .map(email => ({ id: `legacy:${email.toLowerCase()}`, email, name: email.split('@')[0], status: 'legacy', group: 'legacy' }));
+  // Legacy addresses are campaign-only recipients; they are never inserted into Neon users.
+  res.json({ recipients: [...currentRecipients, ...legacyRecipients] });
 });
 
 apiRouter.get('/admin/email-campaigns', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
@@ -2126,18 +2131,28 @@ apiRouter.post('/admin/email-campaigns/send', authMiddleware, adminOnly, async (
     return res.status(400).json({ error: 'Select between 1 and 1,000 clients.' });
   }
 
-  const byId = new Map<string, User>(db.getUsers().filter(u => u.role === 'client').map(u => [u.id, u] as const));
-  const chosen = recipientIds.map(id => byId.get(id));
-  if (chosen.some(u => !u || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email.trim()))) {
-    return res.status(400).json({ error: 'One or more selected clients are no longer eligible. Refresh the recipient list and try again.' });
-  }
+  const currentById = new Map<string, User>(db.getUsers().filter(u => u.role === 'client').map(u => [u.id, u] as const));
+  const legacyById = new Map<string, string>(LEGACY_SUPABASE_CLIENT_EMAILS.map(email => [`legacy:${email.toLowerCase()}`, email] as const));
+  const targets: Array<{ userId: string; email: string; name: string; isLegacy?: boolean }> = [];
   const seenEmails = new Set<string>();
-  const targets = chosen.filter((u): u is User => !!u).filter(u => {
-    const email = u.email.trim().toLowerCase();
-    if (seenEmails.has(email)) return false;
-    seenEmails.add(email);
-    return true;
-  }).map(u => ({ userId: u.id, email: u.email.trim(), name: u.name || [u.realFirstName, u.realSurname].filter(Boolean).join(' ') || 'Client' }));
+  for (const id of recipientIds) {
+    const current = currentById.get(id);
+    const legacyEmail = legacyById.get(id);
+    if (!current && !legacyEmail) {
+      return res.status(400).json({ error: 'One or more selected recipients are no longer eligible. Refresh the recipient list and try again.' });
+    }
+    const email = (current?.email || legacyEmail || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'One or more selected recipients have an invalid email address.' });
+    }
+    const normalizedEmail = email.toLowerCase();
+    if (seenEmails.has(normalizedEmail)) continue;
+    seenEmails.add(normalizedEmail);
+    targets.push(current
+      ? { userId: current.id, email, name: current.name || [current.realFirstName, current.realSurname].filter(Boolean).join(' ') || 'Client' }
+      : { userId: id, email, name: email.split('@')[0], isLegacy: true });
+  }
+  if (!targets.length) return res.status(400).json({ error: 'No unique eligible recipients were selected.' });
 
   const fingerprint = crypto.createHash('sha256').update(`${subject.toLowerCase()}\n${message}`).digest('hex');
   const sender = process.env.EMAIL_FROM || 'Mid-Ama Promo <no-reply@midamapromo.co.za>'; // Same sender identity used by OTP

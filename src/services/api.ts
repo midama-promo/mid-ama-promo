@@ -14,6 +14,7 @@ export interface EmailCampaignRecipientView {
   email: string;
   name: string;
   status: string;
+  group?: 'current' | 'legacy';
 }
 
 export interface EmailCampaignHistoryItem {

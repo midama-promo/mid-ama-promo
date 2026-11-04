@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Eye, History, Mail, RefreshCw, Search, Send, ShieldCheck, Users } from 'lucide-react';
 import { api, EmailCampaignHistoryItem, EmailCampaignRecipientView } from '../../services/api';
 
-const DEFAULT_SUBJECT = 'Important: Mid-Ama Promo Dashboard Re-registration Required';
+const DEFAULT_SUBJECT = 'Important: Your Mid-Ama Promo Account Requires Re-registration';
 const DEFAULT_MESSAGE = `We are making changes to the Mid-Ama Promo client portal. To regain access to your dashboard, you are required to register again.
 
 Please note that your previously distributed releases have NOT been removed from digital streaming platforms (DSPs). Your music remains available on the platforms where it was already distributed.
@@ -11,7 +11,7 @@ If you previously had a catalogue with Mid-Ama Promo, your existing catalogue re
 
 You do NOT need to resubmit music that has already been distributed. Please do not create duplicate release submissions for music that is already live.
 
-If you need assistance with re-registration or your account, contact Mid-Ama Promo Support at support@midamapromo.co.za.`;
+If you need assistance with re-registration or your account, contact Mid-Ama Promo at midnightamapiano@yahoo.com.`;
 
 export const ClientEmailCampaignManager: React.FC = () => {
   const [recipients, setRecipients] = useState<EmailCampaignRecipientView[]>([]);
@@ -47,7 +47,17 @@ export const ClientEmailCampaignManager: React.FC = () => {
     `${r.name} ${r.email} ${r.status}`.toLowerCase().includes(search.toLowerCase().trim())
   ), [recipients, search]);
 
+  const currentFilteredRecipients = filteredRecipients.filter(r => r.group !== 'legacy');
+  const legacyFilteredRecipients = filteredRecipients.filter(r => r.group === 'legacy');
   const allFilteredSelected = filteredRecipients.length > 0 && filteredRecipients.every(r => selected.includes(r.id));
+  const previewRecipient = recipients.find(r => selected.includes(r.id));
+  const allLegacySelected = legacyFilteredRecipients.length > 0 && legacyFilteredRecipients.every(r => selected.includes(r.id));
+  const toggleAllGroup = (group: 'current' | 'legacy') => {
+    const groupRecipients = filteredRecipients.filter(r => group === 'legacy' ? r.group === 'legacy' : r.group !== 'legacy');
+    const ids = groupRecipients.map(r => r.id);
+    const allSelected = ids.length > 0 && ids.every(id => selected.includes(id));
+    setSelected(current => allSelected ? current.filter(id => !ids.includes(id)) : [...new Set([...current, ...ids])]);
+  };
   const toggleRecipient = (id: string) => setSelected(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]);
   const toggleAllFiltered = () => setSelected(current => allFilteredSelected
     ? current.filter(id => !filteredRecipients.some(r => r.id === id))
@@ -106,16 +116,33 @@ export const ClientEmailCampaignManager: React.FC = () => {
           <div className="flex items-center justify-between gap-2"><h4 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-red-400" /> Recipients</h4><span className="text-[11px] text-neutral-400">{selected.length} selected</span></div>
           <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients or email addresses" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white outline-none focus:border-red-700" /></div>
           <label className="flex items-center gap-2 rounded-lg bg-neutral-800/60 px-3 py-2 text-xs text-neutral-200 cursor-pointer"><input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} className="accent-red-600" /> Select all {search ? 'matching' : 'clients'}</label>
-          <div className="max-h-[360px] overflow-y-auto divide-y divide-neutral-800/70 border-y border-neutral-800">
-            {loading ? <div className="p-8 text-center text-xs text-neutral-500">Loading client recipients...</div> : filteredRecipients.length === 0 ? <div className="p-8 text-center text-xs text-neutral-500">No matching clients found.</div> : filteredRecipients.map(r => (
-              <label key={r.id} className="flex items-center gap-3 px-2 py-3 hover:bg-neutral-800/30 cursor-pointer">
-                <input type="checkbox" checked={selected.includes(r.id)} onChange={() => toggleRecipient(r.id)} className="accent-red-600" />
-                <span className="min-w-0 flex-1"><span className="block text-xs text-white truncate">{r.name}</span><span className="block text-[10px] text-neutral-500 truncate">{r.email}</span></span>
-                <span className={`text-[9px] uppercase rounded px-1.5 py-1 ${r.status === 'active' ? 'text-emerald-400 bg-emerald-950/40' : r.status === 'disabled' ? 'text-red-300 bg-red-950/40' : 'text-amber-300 bg-amber-950/40'}`}>{r.status}</span>
-              </label>
-            ))}
+          <div className="max-h-[420px] overflow-y-auto border-y border-neutral-800">
+            {loading ? <div className="p-8 text-center text-xs text-neutral-500">Loading client recipients...</div> : filteredRecipients.length === 0 ? <div className="p-8 text-center text-xs text-neutral-500">No matching recipients found.</div> : <>
+              <div className="px-2 py-2 bg-neutral-800/50 flex items-center justify-between gap-2">
+                <strong className="text-[11px] uppercase tracking-wide text-neutral-200">Current registered clients ({currentFilteredRecipients.length})</strong>
+                <button type="button" onClick={() => toggleAllGroup('current')} className="text-[10px] text-red-300 hover:text-red-200">Select all</button>
+              </div>
+              {currentFilteredRecipients.map(r => (
+                <label key={r.id} className="flex items-center gap-3 px-2 py-3 border-b border-neutral-800/70 hover:bg-neutral-800/30 cursor-pointer">
+                  <input type="checkbox" checked={selected.includes(r.id)} onChange={() => toggleRecipient(r.id)} className="accent-red-600" />
+                  <span className="min-w-0 flex-1"><span className="block text-xs text-white truncate">{r.name}</span><span className="block text-[10px] text-neutral-500 truncate">{r.email}</span></span>
+                  <span className={`text-[9px] uppercase rounded px-1.5 py-1 ${r.status === 'active' ? 'text-emerald-400 bg-emerald-950/40' : r.status === 'disabled' ? 'text-red-300 bg-red-950/40' : 'text-amber-300 bg-amber-950/40'}`}>{r.status}</span>
+                </label>
+              ))}
+              <div className="px-2 py-2 bg-neutral-800/50 flex items-center justify-between gap-2">
+                <strong className="text-[11px] uppercase tracking-wide text-neutral-200">Legacy Supabase Clients ({legacyFilteredRecipients.length})</strong>
+                <button type="button" onClick={() => toggleAllGroup('legacy')} className="text-[10px] text-red-300 hover:text-red-200">{allLegacySelected ? 'Clear legacy' : 'Select all legacy'}</button>
+              </div>
+              {legacyFilteredRecipients.map(r => (
+                <label key={r.id} className="flex items-center gap-3 px-2 py-3 border-b border-neutral-800/70 hover:bg-neutral-800/30 cursor-pointer">
+                  <input type="checkbox" checked={selected.includes(r.id)} onChange={() => toggleRecipient(r.id)} className="accent-red-600" />
+                  <span className="min-w-0 flex-1"><span className="block text-xs text-white truncate">{r.name}</span><span className="block text-[10px] text-neutral-500 truncate">{r.email}</span></span>
+                  <span className="text-[9px] uppercase rounded px-1.5 py-1 text-amber-300 bg-amber-950/40">Legacy</span>
+                </label>
+              ))}
+            </>}
           </div>
-          <p className="text-[10px] text-neutral-500">Only client email addresses are shown here. Administrator accounts are excluded. Disabled and pending client accounts remain selectable for this important account announcement.</p>
+          <p className="text-[10px] text-neutral-500">Current accounts and the separate Legacy Supabase Clients list are campaign recipients only. Legacy addresses are not registered as application accounts.</p>
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4 space-y-3">
@@ -131,7 +158,7 @@ export const ClientEmailCampaignManager: React.FC = () => {
             <button type="button" onClick={sendTest} disabled={sending || loading} className="px-3 py-2 rounded-lg border border-neutral-700 text-neutral-200 hover:bg-neutral-800 text-xs font-bold disabled:opacity-40">{sending ? 'Sending...' : 'Send test to me'}</button>
             <button type="button" onClick={sendCampaign} disabled={sending || loading || selected.length === 0} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-2 disabled:opacity-40"><Send className="w-3.5 h-3.5" /> {sending ? 'Sending campaign...' : `Send to ${selected.length} client(s)`}</button>
           </div>
-          {preview && <div className="mt-2 rounded-xl overflow-hidden border border-neutral-700 bg-white text-neutral-900"><div className="bg-neutral-950 text-white border-b-4 border-red-600 p-4"><strong className="text-sm tracking-wide">MID-AMA PROMO</strong><div className="text-[10px] text-neutral-400">Music Distribution · Client Support</div></div><div className="p-5"><div className="text-[10px] text-neutral-500 mb-1">SUBJECT</div><div className="font-bold text-sm mb-5">{subject || '(No subject)'}</div><div className="text-xs whitespace-pre-wrap leading-relaxed">Hello [Client Name],{'\n\n'}{message}</div><div className="mt-6 text-xs">Kind regards,<br /><strong>Mid-Ama Promo Support</strong></div></div><div className="bg-neutral-100 p-4 text-[10px] text-neutral-500">Need assistance? support@midamapromo.co.za</div></div>}
+          {preview && <div className="mt-2 rounded-xl overflow-hidden border border-neutral-700 bg-white text-neutral-900"><div className="bg-neutral-950 text-white border-b-4 border-red-600 p-4"><strong className="text-sm tracking-wide">MID-AMA PROMO</strong><div className="text-[10px] text-neutral-400">Music Distribution · Client Support</div></div><div className="p-5"><div className="text-[10px] text-neutral-500 mb-1">SUBJECT</div><div className="font-bold text-sm mb-5">{subject || '(No subject)'}</div><div className="text-xs whitespace-pre-wrap leading-relaxed">{previewRecipient?.group === 'legacy' ? `${previewRecipient.name}\n\nEmail: ${previewRecipient.email}` : `Hello ${previewRecipient?.name || '[Client Name]'},`}{'\n\n'}{message}</div><div className="mt-6 text-xs">Kind regards,<br /><strong>Mid-Ama Promo Support</strong></div></div><div className="bg-neutral-100 p-4 text-[10px] text-neutral-500">Need assistance? midnightamapiano@yahoo.com</div></div>}
         </section>
       </div>
 
