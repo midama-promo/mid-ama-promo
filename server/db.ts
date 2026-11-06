@@ -258,6 +258,16 @@ export interface VevoApplication {
   notes?: string; status: 'Pending' | 'Approved' | 'Rejected'; adminNote?: string;
   createdAt: string; updatedAt: string;
 }
+
+export interface VideoSubmission {
+  id: string; userId: string; userEmail: string; clientName: string; artistName: string;
+  videoTitle: string; videoType: 'Official Music Video' | 'Visualizer' | 'Lyric Video' | 'Other';
+  videoUrl: string; videoFilename: string; storedVideoFilename?: string; fileSize: number;
+  director?: string; language?: string; explicit: boolean; releaseDate?: string; notes?: string;
+  status: 'Pending Review' | 'Approved' | 'Corrections Required' | 'Rejected' | 'Delivered';
+  adminNote?: string; createdAt: string; updatedAt: string;
+}
+
 export interface DatabaseSchema {
   _version?: number;
   users: User[];
@@ -269,6 +279,7 @@ export interface DatabaseSchema {
   presavePages: SmartPreSavePage[];
   emailCampaigns: EmailCampaign[];
   vevoApplications: VevoApplication[];
+  videoSubmissions: VideoSubmission[];
 }
 
 // ----------------------------------------------------
@@ -387,6 +398,7 @@ const INITIAL_DB: DatabaseSchema = {
   presavePages: [],
   emailCampaigns: [],
   vevoApplications: [],
+  videoSubmissions: [],
 };
 
 // ----------------------------------------------------
@@ -502,6 +514,7 @@ class Database {
     const presavePages: SmartPreSavePage[] = Array.isArray(parsed.presavePages) ? parsed.presavePages : [];
     const emailCampaigns: EmailCampaign[] = Array.isArray(parsed.emailCampaigns) ? parsed.emailCampaigns : [];
     const vevoApplications: VevoApplication[] = Array.isArray(parsed.vevoApplications) ? parsed.vevoApplications : [];
+    const videoSubmissions: VideoSubmission[] = Array.isArray(parsed.videoSubmissions) ? parsed.videoSubmissions : [];
 
     // Ensure designated platform administrator accounts exist idempotently
     // 1. Remoabetswe Molefi (Founder / Distribution Manager)
@@ -564,6 +577,7 @@ class Database {
       presavePages,
       emailCampaigns,
       vevoApplications,
+      videoSubmissions,
     };
   }
 
@@ -1239,6 +1253,10 @@ class Database {
   updateVevoApplication(id: string, updates: Partial<VevoApplication>): VevoApplication | undefined {
     return this.mutate(data => { const item = (data.vevoApplications || []).find(a => a.id === id); if (!item) return undefined; Object.assign(item, updates); return item; });
   }
+  getVideoSubmissions(): VideoSubmission[] { return this.getAuthoritativeData().videoSubmissions || []; }
+  getVideoSubmissionsForUser(userId: string): VideoSubmission[] { return this.getVideoSubmissions().filter(v => v.userId === userId); }
+  createVideoSubmission(item: VideoSubmission): VideoSubmission { return this.mutate(data => { if (!Array.isArray(data.videoSubmissions)) data.videoSubmissions = []; data.videoSubmissions.unshift(item); return item; }); }
+  updateVideoSubmission(id: string, updates: Partial<VideoSubmission>): VideoSubmission | undefined { return this.mutate(data => { const item = (data.videoSubmissions || []).find(v => v.id === id); if (!item) return undefined; Object.assign(item, updates); return item; }); }
 
   // Explicit safety block: destructive reset must NEVER be callable
   resetToClean() {
@@ -1273,6 +1291,9 @@ export function canAccessUploadedFile(filename: string, user?: User | null): boo
     return false;
   });
   if (catalogue) return !!user && (user.role === 'admin' || catalogue.userId === user.id);
+
+  const videoSubmission = db.getVideoSubmissions().find(v => v.storedVideoFilename === base || path.basename(v.videoUrl) === base);
+  if (videoSubmission) return !!user && (user.role === 'admin' || videoSubmission.userId === user.id);
 
   // Authenticated user can access freshly uploaded asset before form submit
   return !!user;

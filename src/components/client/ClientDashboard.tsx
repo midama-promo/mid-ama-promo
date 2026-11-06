@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { VevoApplications } from '../common/VevoApplications';
+import { VideoSubmissions } from '../common/VideoSubmissions';
 import {
   UploadCloud,
   LogOut,
@@ -215,6 +216,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   return (
     <div className={`min-h-screen text-neutral-100 pb-20 transition-colors duration-500 ${activePlan === 'starter' ? 'bg-[radial-gradient(ellipse_at_top,_rgba(244,63,94,0.13),_transparent_45%),#08080d]' : 'bg-neutral-950'}`} data-plan-theme={activePlan}>
       <VevoApplications />
+      <VideoSubmissions />
       
       {/* Admin Impersonation Notice Bar */}
       {isImpersonating && (

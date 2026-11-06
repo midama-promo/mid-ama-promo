@@ -219,6 +219,16 @@ export async function sendAdminVevoApplicationEmail(application: { artistName: s
   await sendResendEmail('midnightamapiano@yahoo.com', `[VEVO APPLICATION] ${application.artistName}`, body);
 }
 
+export async function sendAdminVideoSubmissionEmail(video: { videoTitle: string; artistName: string; videoType: string; clientName: string; email: string; director?: string; language?: string; releaseDate?: string; notes?: string; createdAt: string }): Promise<void> {
+  const body = `A client submitted a music video for distribution through Mid-Ama Promo.\n\nVideo: ${video.videoTitle}\nArtist: ${video.artistName}\nType: ${video.videoType}\nClient: ${video.clientName}\nClient email: ${video.email}\nDirector: ${video.director || 'Not supplied'}\nLanguage: ${video.language || 'Not supplied'}\nRelease date: ${video.releaseDate || 'Not supplied'}\nSubmitted: ${video.createdAt}\n\nClient notes:\n${video.notes || 'None supplied'}\n\nReview the uploaded master and update its status in the Admin Dashboard.`;
+  await sendResendEmail('midnightamapiano@yahoo.com', `[VIDEO DISTRIBUTION SUBMISSION] ${video.videoTitle} — ${video.artistName}`, body);
+}
+
+export async function sendVideoSubmissionStatusEmail(video: { videoTitle: string; artistName: string; clientName: string; email: string; status: string; adminNote?: string }): Promise<void> {
+  const body = `Hello ${video.clientName},\n\nYour video submission for \"${video.videoTitle}\" by ${video.artistName} has been updated.\n\nNew status: ${video.status}\n${video.adminNote ? `Administrator note: ${video.adminNote}\n` : ''}\nSign in to your Mid-Ama Promo dashboard to view the latest details.`;
+  await sendResendEmail(video.email, `[MID-AMA PROMO] Video submission update — ${video.videoTitle}`, body);
+}
+
 export async function sendAdminTakedownEmail(release: Release): Promise<void> {
   const body = `A takedown request was submitted.\n\nReference: ${release.refNumber}\nRelease: ${release.title}\nArtist: ${release.primaryArtists.join(', ')}\nClient: ${release.artistLabelName}\nEmail: ${release.userEmail}\nStatus: ${release.status}\n\nOpen the Admin Portal to process the request.`;
   try { await sendResendEmail(process.env.ADMIN_NOTIFICATION_EMAIL || 'midnightamapiano@yahoo.com', `[TAKEDOWN REQUEST] ${release.title} — ${release.refNumber}`, body); }

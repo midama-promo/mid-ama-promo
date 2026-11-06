@@ -243,6 +243,13 @@ class ApiService {
   async updateVevoApplication(id: string, payload: { status: 'Approved' | 'Rejected'; adminNote?: string }): Promise<{ message: string; application: any }> {
     return this.request(`/api/admin/vevo/applications/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
   }
+  async uploadVideo(file: File): Promise<{ fileUrl: string; filename: string; storedFilename: string; fileSize: number }> {
+    const formData = new FormData(); formData.append('video', file);
+    return this.request('/api/upload/video', { method: 'POST', body: formData });
+  }
+  async submitVideoSubmission(payload: any): Promise<{ message: string; submission: any }> { return this.request('/api/video-submissions', { method: 'POST', body: JSON.stringify(payload) }); }
+  async getVideoSubmissions(): Promise<{ submissions: any[] }> { return this.request('/api/video-submissions'); }
+  async updateVideoSubmission(id: string, payload: { status: 'Approved'|'Corrections Required'|'Rejected'|'Delivered'; adminNote?: string }): Promise<{ message: string; submission: any }> { return this.request(`/api/admin/video-submissions/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
 
   async previewSmartPreSave(soundblastUrl: string): Promise<{ metadata: { title: string; artist: string; artworkUrl: string; dspLinks: Array<{label:string;url:string}> } }> {
     return this.request('/api/admin/presave/preview', { method: 'POST', body: JSON.stringify({ soundblastUrl }) });

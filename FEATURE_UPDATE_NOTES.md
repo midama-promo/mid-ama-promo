@@ -1,17 +1,30 @@
-# Mid-Ama Promo — Feature Update
+# Mid-Ama Promo — Feature Update and Repair
 
-## Implemented in this package
-- Added Shift Music / Linkfire (`*.lnk.to`) source-host support to the existing Smart Pre-Save generator. Existing SoundBlast / Feature.fm hosts remain supported.
-- Removed the Mid-Ama Promo back/navigation link from generated Smart Pre-Save pages.
-- Added client VEVO channel applications with Pending, Approved and Rejected statuses.
-- Added an admin review panel with Approve / Reject actions and optional client-facing notes.
-- Added an email notification to `midnightamapiano@yahoo.com` for new VEVO applications through the existing Resend mail transport.
-- Added a public-facing “VIDEO DISTRIBUTION NOW AVAILABLE” announcement.
+## Pre-save page repair
+- Fixed the malformed JSX on the artwork background element that prevented the public pre-save page from compiling/rendering.
+- Removed the undefined `ArrowLeft` reference and removed the Mid-Ama Promo back/navigation link from generated pre-save pages.
+- Existing Feature.fm / SoundBlast and Shift Music Linkfire host handling remains in the Smart Pre-Save manager.
+
+## VEVO channel applications
+- Clients can apply for a VEVO channel and view Pending, Approved or Rejected status.
+- Admins can review applications and approve or reject them.
+- New application email notifications continue to use the existing Resend mail transport and are addressed to midnightamapiano@yahoo.com.
+
+## Video submission workflow (new)
+- A separate music-video submission window is displayed to clients only after at least one of their VEVO applications is Approved.
+- Clients can submit a video title, artist/channel name, video type, director, language, release date, explicit-content flag, notes and a video master (MP4, MOV or M4V; maximum 500 MB).
+- Video uploads use the existing private uploads / configured R2 storage approach.
+- Video submissions are stored additively in the existing application-state JSON document as `videoSubmissions`; existing users, releases, catalogue, royalties, and VEVO applications are retained.
+- Admins can open the uploaded video, add a note, and set status to Approved, Corrections Required, Rejected or Delivered.
+- Clients can see their submission statuses and admin notes in the same dashboard section. Video submission status emails use the existing Resend configuration.
+- New video submission email notifications are sent to midnightamapiano@yahoo.com.
 
 ## Data safety
-No existing client, release, royalty, catalogue, authentication, storage, or Supabase persistence records are deleted or recreated by these changes. VEVO applications are stored as a new additive `vevoApplications` collection in the existing application-state document. Existing state is retained by the existing migration/validation path; no destructive database reset or Supabase schema replacement was introduced.
+- No database reset, user recreation, release replacement, or destructive migration was added.
+- `videoSubmissions` is a new additive state collection. Existing persisted arrays are read as-is; older state documents without this property are migrated in memory to an empty array and then retained through the existing persistence mechanism.
+- No existing email campaign system was replaced or modified.
 
-## Deployment / verification
-The TypeScript/TSX sources passed syntax transpilation. A full Vite production build and dependency-backed type check could not be run in this environment because package installation timed out and the project dependencies were not available locally. Before deploying, run `npm install` and `npm run build` in the project environment. Ensure `RESEND_API_KEY` and the existing verified `EMAIL_FROM` configuration are present for VEVO admin email delivery.
-
-The Linkfire preview attempts to extract page metadata using the same safe HTTPS smartlink fetch flow as Feature.fm. Some Linkfire landing pages may not expose all DSP metadata to server-side extraction; the existing manual title, artist, artwork and DSP-link fields remain available as fallback.
+## Verification
+- TypeScript/TSX syntax transpilation passed for all modified source files.
+- A complete dependency-backed Vite build could not be run in this environment because `npm install` timed out. Run `npm install` and `npm run build` in the deployment environment before publishing.
+- Ensure the existing `DATABASE_URL`, R2 credentials, `RESEND_API_KEY` and `EMAIL_FROM` environment variables are configured. The video upload path requires the configured R2 storage to persist files across deployments; local uploads are only suitable for development.

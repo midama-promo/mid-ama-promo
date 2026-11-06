@@ -28,8 +28,9 @@ import type {
   WithdrawalRequest,
   SmartPreSavePage,
   VevoApplication,
+  VideoSubmission,
 } from './db.ts';
-import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAdminVevoApplicationEmail, sendAnnouncementBatch } from './mailer.ts';
+import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAdminVevoApplicationEmail, sendAdminVideoSubmissionEmail, sendVideoSubmissionStatusEmail, sendAnnouncementBatch } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
 import { LEGACY_SUPABASE_CLIENT_EMAILS } from './legacy-client-emails.ts';
 import {
@@ -140,6 +141,11 @@ const uploadArtwork = multer({
     }
   }
 });
+
+const VIDEO_DIR = path.join(UPLOADS_DIR, 'videos');
+fs.mkdirSync(VIDEO_DIR, { recursive: true });
+const videoStorage = multer.diskStorage({ destination: (_req, _file, cb) => cb(null, VIDEO_DIR), filename: (_req, file, cb) => cb(null, `video_${Date.now()}_${Math.random().toString(36).slice(2,8)}${path.extname(file.originalname).toLowerCase()}`) });
+const uploadVideo = multer({ storage: videoStorage, limits: { fileSize: 500 * 1024 * 1024 }, fileFilter: (_req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); if (['.mp4','.mov','.m4v'].includes(ext) || ['video/mp4','video/quicktime','video/x-m4v'].includes(file.mimetype.toLowerCase())) cb(null, true); else cb(new Error('Upload an MP4, MOV or M4V video file.')); } });
 
 const uploadAudio = multer({
   storage: audioStorage,
@@ -1028,7 +1034,13 @@ apiRouter.get('/assets/:encoded', (req: Request, res: Response) => {
     const match = paths.find(p => remoteObjectPathFromStoredName(p) === objectPath);
     return match ? [{ storedName: match, allowed: c.userId === user?.id || user?.role === 'admin' }] : [];
   })[0];
-  const matched = releaseMatch || catalogueMatch;
+  const videoMatch = db.getVideoSubmissions().flatMap(v => {
+    const storedName = v.storedVideoFilename;
+    return storedName && remoteObjectPathFromStoredName(storedName) === objectPath
+      ? [{ storedName, allowed: v.userId === user?.id || user?.role === 'admin' }]
+      : [];
+  })[0];
+  const matched = releaseMatch || catalogueMatch || videoMatch;
   if (!matched || (!matched.allowed && (!user || user.role !== 'admin'))) return res.status(403).json({ error: 'Access denied.' });
 
   try { return res.redirect(remoteSignedUrlForStoredName(matched.storedName, 300)); }
@@ -1656,6 +1668,43 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
   }
   return { title, artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
 }
+
+// ----------------------------------------------------
+// VIDEO DISTRIBUTION SUBMISSIONS (available after VEVO approval)
+// ----------------------------------------------------
+apiRouter.post('/upload/video', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response, next: NextFunction) => { if (!db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'A VEVO channel application must be approved before video upload is available.' }); next(); }, uploadVideo.single('video'), (req: AuthenticatedRequest, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose a video file to upload.' });
+  const approved = db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved');
+  if (!approved) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(403).json({ error: 'A VEVO channel application must be approved before video submission is available.' }); }
+  let storedFilename = req.file.filename; let fileUrl = `/uploads/videos/${req.file.filename}`;
+  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/videos/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'video/mp4'); try { fs.unlinkSync(req.file.path); } catch {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  return res.json({ fileUrl, filename: req.file.originalname, storedFilename, fileSize: req.file.size });
+});
+apiRouter.post('/video-submissions', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (!db.getVevoApplicationsForUser(user.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'Your VEVO channel application must be approved before submitting a video.' });
+  const { videoTitle, videoType, videoUrl, videoFilename, storedVideoFilename, fileSize, artistName, director, language, explicit, releaseDate, notes } = req.body || {};
+  if (!String(videoTitle || '').trim() || !String(artistName || '').trim() || !String(videoUrl || '').trim() || !String(storedVideoFilename || '').trim()) return res.status(400).json({ error: 'Video title, artist name and uploaded video file are required.' });
+  const now = new Date().toISOString();
+  const item: VideoSubmission = { id: `vid_${crypto.randomUUID()}`, userId: user.id, userEmail: user.email, clientName: user.name, artistName: String(artistName).trim().slice(0,180), videoTitle: String(videoTitle).trim().slice(0,180), videoType: ['Official Music Video','Visualizer','Lyric Video','Other'].includes(videoType) ? videoType : 'Official Music Video', videoUrl: String(videoUrl), videoFilename: String(videoFilename || 'video.mp4'), storedVideoFilename: String(storedVideoFilename), fileSize: Number(fileSize) || 0, director: String(director || '').trim().slice(0,180) || undefined, language: String(language || '').trim().slice(0,80) || undefined, explicit: !!explicit, releaseDate: String(releaseDate || '').trim() || undefined, notes: String(notes || '').trim().slice(0,3000) || undefined, status: 'Pending Review', createdAt: now, updatedAt: now };
+  db.createVideoSubmission(item);
+  void Promise.all([
+    sendAdminVideoSubmissionEmail({ videoTitle: item.videoTitle, artistName: item.artistName, videoType: item.videoType, clientName: user.name, email: user.email, director: item.director, language: item.language, releaseDate: item.releaseDate, notes: item.notes, createdAt: now }),
+    sendNotification({ recipientEmail: 'midnightamapiano@yahoo.com', recipientName: 'Mid-Ama Promo Administration', subject: `New Video Distribution Submission — ${item.videoTitle}`, template: 'submission_received', metadata: { submissionId: item.id, artistName: item.artistName, clientName: user.name, clientEmail: user.email, videoTitle: item.videoTitle, status: item.status } }),
+  ]).catch(err => console.error('[VIDEO] Admin notification failed:', err));
+  return res.status(201).json({ message: 'Your video has been submitted for review.', submission: item });
+});
+apiRouter.get('/video-submissions', authMiddleware, (req: AuthenticatedRequest, res: Response) => res.json({ submissions: req.user!.role === 'admin' ? db.getVideoSubmissions() : db.getVideoSubmissionsForUser(req.user!.id) }));
+apiRouter.patch('/admin/video-submissions/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const status = req.body?.status; if (!['Approved','Corrections Required','Rejected','Delivered'].includes(status)) return res.status(400).json({ error: 'Choose a valid video submission status.' });
+  const existing = db.getVideoSubmissions().find(v => v.id === req.params.id); if (!existing) return res.status(404).json({ error: 'Video submission not found.' });
+  const updated = db.updateVideoSubmission(existing.id, { status, adminNote: String(req.body?.adminNote || '').trim().slice(0,1500) || undefined, updatedAt: new Date().toISOString() });
+  if (updated) void Promise.all([
+    sendVideoSubmissionStatusEmail({ videoTitle: existing.videoTitle, artistName: existing.artistName, clientName: existing.clientName, email: existing.userEmail, status, adminNote: updated.adminNote }),
+    sendNotification({ recipientEmail: existing.userEmail, recipientName: existing.clientName, subject: `Video Submission Update — ${existing.videoTitle}`, template: 'status_change', metadata: { artistName: existing.artistName, videoTitle: existing.videoTitle, status, adminNote: updated.adminNote || '' } }),
+  ]).catch(err => console.error('[VIDEO] Client status email failed:', err));
+  return res.json({ submission: updated, message: `Video submission marked ${status}.` });
+});
 
 // ----------------------------------------------------
 // VEVO CHANNEL APPLICATIONS
@@ -2423,7 +2472,7 @@ const backupUpload = multer({
     destination: (_req, _file, cb) => cb(null, os.tmpdir()),
     filename: (_req, file, cb) => cb(null, `midama-restore-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${path.extname(file.originalname) || '.tar.gz'}`),
   }),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 apiRouter.get('/admin/backup/export', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
