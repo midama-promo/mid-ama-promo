@@ -265,6 +265,13 @@ function MainContent() {
         {/* Temporary service interruption notice */}
         <ServiceNotice className="pt-4" />
 
+        <div className="mx-auto mt-5 max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-1 rounded-2xl border border-red-500/30 bg-gradient-to-r from-red-950/80 via-neutral-900 to-neutral-900 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-[10px] font-extrabold uppercase tracking-[.25em] text-red-300">New service</p><p className="mt-1 text-lg font-black tracking-tight text-white sm:text-xl">VIDEO DISTRIBUTION NOW AVAILABLE</p><p className="mt-1 text-xs text-neutral-300">Bring your music videos to VEVO with Mid-Ama Promo.</p></div>
+            <span className="mt-2 inline-flex w-fit rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-200 sm:mt-0">Apply through your dashboard</span>
+          </div>
+        </div>
+
         {/* Hero Section */}
         <Hero
           onOpenSignIn={() => openAuth('signin')}

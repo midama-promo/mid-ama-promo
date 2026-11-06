@@ -27,8 +27,9 @@ import type {
   CatalogueEntry,
   WithdrawalRequest,
   SmartPreSavePage,
+  VevoApplication,
 } from './db.ts';
-import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAnnouncementBatch } from './mailer.ts';
+import { sendNotification, sendAdminReleaseEmail, sendAdminEnquiryEmail, sendAdminTakedownEmail, sendAdminVevoApplicationEmail, sendAnnouncementBatch } from './mailer.ts';
 import { requestEmailOtp, verifyEmailOtp } from './otp.ts';
 import { LEGACY_SUPABASE_CLIENT_EMAILS } from './legacy-client-emails.ts';
 import {
@@ -1557,7 +1558,7 @@ function safeSlug(value: string): string {
 }
 function isAllowedSmartlinkHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  return ['soundblast.pro', 'soundblast.de', 'feature.fm', 'ffm.to'].some(domain => host === domain || host.endsWith(`.${domain}`));
+  return ['soundblast.pro', 'soundblast.de', 'feature.fm', 'ffm.to', 'lnk.to', 'linkfire.com'].some(domain => host === domain || host.endsWith(`.${domain}`));
 }
 function extractSoundBlastMetadata(html: string, sourceUrl: string) {
   const decodeHtml = (value: string) => value
@@ -1656,11 +1657,63 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
   return { title, artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
 }
 
+// ----------------------------------------------------
+// VEVO CHANNEL APPLICATIONS
+// Stored as an additive field in the existing application state; no existing records are replaced.
+// ----------------------------------------------------
+apiRouter.post('/vevo/applications', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can apply for a VEVO channel.' });
+  const artistName = String(req.body?.artistName || user.artistName || user.name || '').trim().slice(0, 180);
+  const notes = String(req.body?.notes || '').trim().slice(0, 2000);
+  if (!artistName) return res.status(400).json({ error: 'Artist name is required.' });
+  const pending = db.getVevoApplicationsForUser(user.id).find(a => a.status === 'Pending');
+  if (pending) return res.status(409).json({ error: 'You already have a pending VEVO channel application.', application: pending });
+  const now = new Date().toISOString();
+  const application: VevoApplication = {
+    id: `vevo_${crypto.randomUUID()}`, userId: user.id, clientName: user.name,
+    artistName, email: user.email, notes, status: 'Pending', createdAt: now, updatedAt: now,
+  };
+  db.createVevoApplication(application);
+  void Promise.all([
+    sendAdminVevoApplicationEmail({ artistName, clientName: user.name, email: user.email, notes, createdAt: now }),
+    sendNotification({
+      recipientEmail: 'midnightamapiano@yahoo.com',
+      recipientName: 'Mid-Ama Promo Administration',
+      subject: `New VEVO Channel Application — ${artistName}`,
+      template: 'vevo_application',
+      metadata: { applicationId: application.id, artistName, clientName: user.name, clientEmail: user.email, notes, status: 'Pending', submittedAt: now },
+    }),
+  ]).catch(error => console.error('[VEVO] Admin notification failed:', error));
+  return res.status(201).json({ message: 'Your VEVO channel application has been submitted.', application });
+});
+apiRouter.get('/vevo/applications', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user!.role === 'admin') return res.json({ applications: db.getVevoApplications() });
+  return res.json({ applications: db.getVevoApplicationsForUser(req.user!.id) });
+});
+apiRouter.patch('/admin/vevo/applications/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
+  const status = req.body?.status;
+  if (!['Approved', 'Rejected'].includes(status)) return res.status(400).json({ error: 'Choose Approved or Rejected.' });
+  const existing = db.getVevoApplications().find(a => a.id === req.params.id);
+  if (!existing) return res.status(404).json({ error: 'VEVO application not found.' });
+  const updated = db.updateVevoApplication(existing.id, {
+    status, adminNote: String(req.body?.adminNote || '').trim().slice(0, 1000) || undefined,
+    updatedAt: new Date().toISOString(),
+  });
+  if (updated) void sendNotification({
+    recipientEmail: existing.email, recipientName: existing.clientName,
+    subject: `VEVO Channel Application ${status} — Mid-Ama Promo`,
+    template: 'vevo_application_status',
+    metadata: { artistName: existing.artistName, status, adminNote: updated.adminNote || '' },
+  }).catch(error => console.error('[VEVO] Client status email failed:', error));
+  return res.json({ message: `Application marked ${status.toLowerCase()}.`, application: updated });
+});
+
 apiRouter.post('/admin/presave/preview', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
   const rawUrl = String(req.body?.soundblastUrl || '').trim();
   let parsed: URL;
-  try { parsed = new URL(rawUrl); } catch { return res.status(400).json({ error: 'Enter a valid SoundBlast / Feature.fm smartlink URL.' }); }
-  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'For security, use an HTTPS SoundBlast or Feature.fm smartlink URL.' });
+  try { parsed = new URL(rawUrl); } catch { return res.status(400).json({ error: 'Enter a valid SoundBlast / Feature.fm or Shift Music Linkfire URL.' }); }
+  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'For security, use an HTTPS SoundBlast, Feature.fm or Linkfire smartlink URL.' });
   try {
     // Follow only a small number of HTTPS redirects that remain on approved smartlink hosts.
     let currentUrl = parsed;
@@ -1696,8 +1749,8 @@ apiRouter.post('/admin/presave', authMiddleware, adminOnly, (req: AuthenticatedR
   const artworkUrl = String(req.body?.artworkUrl || '').trim();
   const dspLinks = Array.isArray(req.body?.dspLinks) ? req.body.dspLinks : [];
   let parsed: URL;
-  try { parsed = new URL(soundblastUrl); } catch { return res.status(400).json({ error: 'A valid source smartlink URL is required.' }); }
-  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'Use an HTTPS SoundBlast / Feature.fm source URL.' });
+  try { parsed = new URL(soundblastUrl); } catch { return res.status(400).json({ error: 'A valid SoundBlast / Feature.fm or Shift Music Linkfire source URL is required.' }); }
+  if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'Use an HTTPS SoundBlast / Feature.fm or Shift Music Linkfire source URL.' });
   if (!title || title.length > 140) return res.status(400).json({ error: 'Track title is required (maximum 140 characters).' });
   if (artist.length > 180) return res.status(400).json({ error: 'Artist name is too long.' });
   if (dspLinks.length < 1 || dspLinks.length > 30) return res.status(400).json({ error: 'Add between 1 and 30 DSP destinations.' });

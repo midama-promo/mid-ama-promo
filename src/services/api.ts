@@ -236,6 +236,14 @@ class ApiService {
     });
   }
 
+  async getVevoApplications(): Promise<{ applications: any[] }> { return this.request('/api/vevo/applications'); }
+  async submitVevoApplication(payload: { artistName: string; notes?: string }): Promise<{ message: string; application: any }> {
+    return this.request('/api/vevo/applications', { method: 'POST', body: JSON.stringify(payload) });
+  }
+  async updateVevoApplication(id: string, payload: { status: 'Approved' | 'Rejected'; adminNote?: string }): Promise<{ message: string; application: any }> {
+    return this.request(`/api/admin/vevo/applications/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  }
+
   async previewSmartPreSave(soundblastUrl: string): Promise<{ metadata: { title: string; artist: string; artworkUrl: string; dspLinks: Array<{label:string;url:string}> } }> {
     return this.request('/api/admin/presave/preview', { method: 'POST', body: JSON.stringify({ soundblastUrl }) });
   }

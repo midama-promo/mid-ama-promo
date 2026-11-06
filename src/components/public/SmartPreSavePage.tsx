@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Music2, Loader2, ArrowLeft, Sparkles } from 'lucide-react';
+import { ExternalLink, Music2, Loader2, Sparkles } from 'lucide-react';
 
 type DspLink = { label: string; url: string };
 type SmartPage = { title: string; artist: string; artworkUrl?: string; dspLinks: DspLink[] };

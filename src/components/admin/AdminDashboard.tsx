@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { VevoApplications } from '../common/VevoApplications';
 import {
   Shield,
   Disc,
@@ -493,6 +494,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 pb-20">
+      <VevoApplications admin />
       
       {/* Top Admin Header Bar */}
       <header className="sticky top-0 z-30 bg-neutral-950/95 backdrop-blur-md border-b border-neutral-800/80 px-4 sm:px-6 lg:px-8">

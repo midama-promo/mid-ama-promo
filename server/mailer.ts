@@ -214,6 +214,11 @@ export async function sendAdminEnquiryEmail(enquiry: { name: string; email: stri
   catch (error: any) { console.error('[EMAIL] Client query email failed:', error?.message || error); }
 }
 
+export async function sendAdminVevoApplicationEmail(application: { artistName: string; clientName: string; email: string; notes?: string; createdAt: string }): Promise<void> {
+  const body = `A client submitted a VEVO channel application through Mid-Ama Promo.\n\nArtist / channel name: ${application.artistName}\nClient: ${application.clientName}\nClient email: ${application.email}\nSubmitted: ${application.createdAt}\n\nAdditional information:\n${application.notes || 'None supplied'}\n\nReview this request in the Mid-Ama Promo admin dashboard.`;
+  await sendResendEmail('midnightamapiano@yahoo.com', `[VEVO APPLICATION] ${application.artistName}`, body);
+}
+
 export async function sendAdminTakedownEmail(release: Release): Promise<void> {
   const body = `A takedown request was submitted.\n\nReference: ${release.refNumber}\nRelease: ${release.title}\nArtist: ${release.primaryArtists.join(', ')}\nClient: ${release.artistLabelName}\nEmail: ${release.userEmail}\nStatus: ${release.status}\n\nOpen the Admin Portal to process the request.`;
   try { await sendResendEmail(process.env.ADMIN_NOTIFICATION_EMAIL || 'midnightamapiano@yahoo.com', `[TAKEDOWN REQUEST] ${release.title} — ${release.refNumber}`, body); }

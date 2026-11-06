@@ -253,6 +253,11 @@ export interface SmartPreSavePage {
   id: string; slug: string; title: string; artist: string; artworkUrl?: string; soundblastUrl: string; dspLinks: Array<{ label: string; url: string }>; active: boolean; createdAt: string; updatedAt: string;
 }
 
+export interface VevoApplication {
+  id: string; userId: string; clientName: string; artistName: string; email: string;
+  notes?: string; status: 'Pending' | 'Approved' | 'Rejected'; adminNote?: string;
+  createdAt: string; updatedAt: string;
+}
 export interface DatabaseSchema {
   _version?: number;
   users: User[];
@@ -263,6 +268,7 @@ export interface DatabaseSchema {
   withdrawals: WithdrawalRequest[];
   presavePages: SmartPreSavePage[];
   emailCampaigns: EmailCampaign[];
+  vevoApplications: VevoApplication[];
 }
 
 // ----------------------------------------------------
@@ -380,6 +386,7 @@ const INITIAL_DB: DatabaseSchema = {
   withdrawals: [],
   presavePages: [],
   emailCampaigns: [],
+  vevoApplications: [],
 };
 
 // ----------------------------------------------------
@@ -494,6 +501,7 @@ class Database {
     const withdrawals: WithdrawalRequest[] = Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [];
     const presavePages: SmartPreSavePage[] = Array.isArray(parsed.presavePages) ? parsed.presavePages : [];
     const emailCampaigns: EmailCampaign[] = Array.isArray(parsed.emailCampaigns) ? parsed.emailCampaigns : [];
+    const vevoApplications: VevoApplication[] = Array.isArray(parsed.vevoApplications) ? parsed.vevoApplications : [];
 
     // Ensure designated platform administrator accounts exist idempotently
     // 1. Remoabetswe Molefi (Founder / Distribution Manager)
@@ -555,6 +563,7 @@ class Database {
       withdrawals,
       presavePages,
       emailCampaigns,
+      vevoApplications,
     };
   }
 
@@ -1221,6 +1230,15 @@ class Database {
   createPreSavePage(page: SmartPreSavePage): SmartPreSavePage { return this.mutate(data => { if (!Array.isArray(data.presavePages)) data.presavePages = []; if (data.presavePages.some(p => p.slug.toLowerCase() === page.slug.toLowerCase())) throw new Error('That pre-save URL is already in use.'); data.presavePages.unshift(page); return page; }); }
   updatePreSavePage(id: string, updates: Partial<SmartPreSavePage>): SmartPreSavePage | undefined { return this.mutate(data => { const page = (data.presavePages || []).find(p => p.id === id); if (!page) return undefined; Object.assign(page, updates); return page; }); }
   deletePreSavePage(id: string): boolean { return this.mutate(data => { const before = (data.presavePages || []).length; data.presavePages = (data.presavePages || []).filter(p => p.id !== id); return data.presavePages.length !== before; }); }
+
+  getVevoApplications(): VevoApplication[] { return this.getAuthoritativeData().vevoApplications || []; }
+  getVevoApplicationsForUser(userId: string): VevoApplication[] { return this.getVevoApplications().filter(a => a.userId === userId); }
+  createVevoApplication(application: VevoApplication): VevoApplication {
+    return this.mutate(data => { if (!Array.isArray(data.vevoApplications)) data.vevoApplications = []; data.vevoApplications.unshift(application); return application; });
+  }
+  updateVevoApplication(id: string, updates: Partial<VevoApplication>): VevoApplication | undefined {
+    return this.mutate(data => { const item = (data.vevoApplications || []).find(a => a.id === id); if (!item) return undefined; Object.assign(item, updates); return item; });
+  }
 
   // Explicit safety block: destructive reset must NEVER be callable
   resetToClean() {
