@@ -43,6 +43,10 @@ class ApiService {
     return this.token;
   }
 
+  clearLocalToken(): void {
+    this.token = null;
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
@@ -216,6 +220,13 @@ class ApiService {
 
   async createRelease(payload: Partial<Release>): Promise<{ message: string; release: Release }> {
     return this.request<{ message: string; release: Release }>('/api/releases', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async resubmitCorrectedRelease(id: string, payload: Partial<Release>): Promise<{ message: string; release: Release }> {
+    return this.request<{ message: string; release: Release }>(`/api/releases/${encodeURIComponent(id)}/corrections-resubmit`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });

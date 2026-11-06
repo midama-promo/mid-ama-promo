@@ -35,7 +35,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(res.user);
     } catch (err) {
       console.warn('Session check failed or expired', err);
-      api.logout();
+      // A failed bootstrap check must not issue /logout: a transient request failure
+      // would otherwise erase the valid HttpOnly session cookie. Keep the cookie intact.
+      api.clearLocalToken();
       setUser(null);
     } finally {
       setIsLoading(false);

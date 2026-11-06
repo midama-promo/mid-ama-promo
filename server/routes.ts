@@ -1975,6 +1975,106 @@ apiRouter.post('/releases/:id/request-corrections', authMiddleware, adminOnly, a
   });
 });
 
+// Client resubmission for a release explicitly returned for corrections.
+// This updates the existing release record (same ID/reference) and never creates
+// or deletes stored assets. Unchanged asset URLs/filenames are preserved.
+apiRouter.post('/releases/:id/corrections-resubmit', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
+  const existing = db.findReleaseById(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Release not found.' });
+  if (req.user!.role !== 'client' || existing.userId !== req.user!.id) {
+    return res.status(403).json({ error: 'You are not authorized to edit this release.' });
+  }
+  if (existing.status !== 'Corrections Required') {
+    return res.status(409).json({ error: 'This release is no longer awaiting corrections. Refresh your dashboard and try again.' });
+  }
+
+  const body = req.body || {};
+  const requiredText = ['title', 'genre', 'targetReleaseDate'];
+  for (const field of requiredText) {
+    if (typeof body[field] !== 'string' || !body[field].trim()) {
+      return res.status(400).json({ error: `Please provide a valid ${field}.` });
+    }
+  }
+  const incomingTracks = Array.isArray(body.tracks) ? body.tracks : existing.tracks;
+  if (!incomingTracks.length || incomingTracks.some((track: any) =>
+    !track || typeof track.title !== 'string' || !track.title.trim() ||
+    typeof (track.fileUrl || '') !== 'string' || !(track.fileUrl || '').trim()
+  )) {
+    return res.status(400).json({ error: 'Every track must have a title and an uploaded audio file. Existing audio files are retained when not replaced.' });
+  }
+  const artworkUrl = typeof body.artworkUrl === 'string' && body.artworkUrl.trim()
+    ? body.artworkUrl.trim() : existing.artworkUrl;
+  if (!artworkUrl) return res.status(400).json({ error: 'Release artwork is required.' });
+
+  const editableFields = [
+    'title', 'releaseType', 'primaryArtists', 'featuredArtists', 'primaryArtistProfiles',
+    'featuredArtistProfiles', 'artistProfiles', 'genre', 'subGenre', 'language',
+    'composers', 'producers', 'targetReleaseDate', 'previouslyReleased',
+    'previousReleaseDetails', 'cLine', 'pLine', 'clientNotes',
+    'artworkUrl', 'artworkFilename', 'storedArtworkFilename', 'artworkDimensions', 'tracks',
+  ];
+  const changes: Record<string, any> = {};
+  for (const field of editableFields) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) changes[field] = body[field];
+  }
+  // Asset fields are additive/replacement-only: never blank a stored asset because
+  // a client omitted a field from an older or partial form submission.
+  changes.artworkUrl = artworkUrl;
+  changes.artworkFilename = body.artworkFilename || existing.artworkFilename;
+  changes.storedArtworkFilename = body.storedArtworkFilename || existing.storedArtworkFilename;
+  changes.artworkDimensions = body.artworkDimensions || existing.artworkDimensions;
+  changes.tracks = incomingTracks.map((track: any, index: number) => {
+    const previous = existing.tracks.find((item: any) => item.id === track.id);
+    return {
+      ...(previous || {}),
+      ...track,
+      id: track.id || previous?.id || `trk_${Date.now()}_${index + 1}`,
+      trackNumber: Number(track.trackNumber) || index + 1,
+      filename: track.filename || previous?.filename || `track_${index + 1}.mp3`,
+      storedFilename: track.storedFilename || previous?.storedFilename,
+      fileUrl: track.fileUrl || previous?.fileUrl,
+      fileSize: Number(track.fileSize) || previous?.fileSize || 0,
+    };
+  });
+
+  const now = new Date().toISOString();
+  const updatedHistory = [
+    ...(existing.statusHistory || []),
+    {
+      status: 'Pending Review' as ReleaseStatus,
+      note: `Corrected release resubmitted by client. Previous administrator feedback: ${existing.adminNotes || 'See prior status history.'}`,
+      timestamp: now,
+      updatedBy: req.user!.name,
+    },
+  ];
+  const updated = db.updateRelease(existing.id, {
+    ...changes,
+    status: 'Pending Review',
+    updatedAt: now,
+    statusHistory: updatedHistory,
+  });
+  if (!updated) return res.status(500).json({ error: 'The corrected release could not be saved. No existing release was deleted.' });
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  try {
+    await sendAdminReleaseEmail(updated, baseUrl, true);
+  } catch (error) {
+    console.error('[RELEASE RESUBMISSION] Admin email notification failed:', error);
+  }
+  void sendNotification({
+    recipientEmail: updated.userEmail,
+    recipientName: updated.artistLabelName,
+    subject: `Corrected Release Resubmitted: ${updated.title} (${updated.refNumber})`,
+    template: 'submission_received',
+    metadata: { refNumber: updated.refNumber, title: updated.title, status: 'Pending Review', resubmitted: true },
+  }).catch(error => console.error('[RELEASE RESUBMISSION] Client confirmation notification failed:', error));
+
+  return res.json({
+    message: `${updated.refNumber} has been resubmitted and is Pending Review.`,
+    release: updated,
+  });
+});
+
 // ----------------------------------------------------
 // PUBLIC SHARE / SHOWCASE (If allowed)
 // ----------------------------------------------------

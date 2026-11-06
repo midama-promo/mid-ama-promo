@@ -119,13 +119,13 @@ function artistProfileLines(release: Release): string {
   return lines.length ? lines.join('\n') : 'No artist profile links supplied.';
 }
 
-export async function sendAdminReleaseEmail(release: Release, baseUrl: string): Promise<NotificationLog> {
+export async function sendAdminReleaseEmail(release: Release, baseUrl: string, isResubmission = false): Promise<NotificationLog> {
   const tracklistSummary = release.tracks.map((t, idx) =>
     `  ${idx + 1}. ${t.title} (${t.version || 'Original Mix'}) - ${t.filename}\n     Audio: ${baseUrl}${t.fileUrl}`
   ).join('\n');
 
   const fullEmailBody = `
-MID-AMA PROMO™ — NEW RELEASE SUBMISSION
+MID-AMA PROMO™ — ${isResubmission ? 'CORRECTED RELEASE RESUBMISSION' : 'NEW RELEASE SUBMISSION'}
 
 Reference: ${release.refNumber}
 Release: ${release.title}
@@ -175,7 +175,7 @@ The complete submission remains available in the Mid-Ama Promo Admin Portal for 
   try {
     await sendResendEmail(
       process.env.ADMIN_NOTIFICATION_EMAIL || 'midnightamapiano@yahoo.com',
-      `[NEW SUBMISSION] ${release.title} — ${release.refNumber}`,
+      `[${isResubmission ? 'CORRECTION RESUBMISSION' : 'NEW SUBMISSION'}] ${release.title} — ${release.refNumber}`,
       fullEmailBody,
       `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap">${fullEmailBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`
     );
@@ -187,7 +187,7 @@ The complete submission remains available in the Mid-Ama Promo Admin Portal for 
     id: `notif_admin_${Date.now()}`,
     recipientEmail: process.env.ADMIN_NOTIFICATION_EMAIL || 'midnightamapiano@yahoo.com',
     recipientName: 'Mid-Ama Promo Head Office',
-    subject: `[NEW SUBMISSION] ${release.title} by ${release.primaryArtists.join(', ')} (${release.refNumber})`,
+    subject: `[${isResubmission ? 'CORRECTION RESUBMISSION' : 'NEW SUBMISSION'}] ${release.title} by ${release.primaryArtists.join(', ')} (${release.refNumber})`,
     template: 'submission_received',
     metadata: {
       refNumber: release.refNumber,

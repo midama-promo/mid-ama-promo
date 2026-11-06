@@ -37,6 +37,7 @@ import { ServiceNotice } from '../common/ServiceNotice';
 
 interface ClientDashboardProps {
   onOpenUpload: () => void;
+  onEditRelease: (release: Release) => void;
   onSelectRelease: (release: Release) => void;
   onOpenSharePage: (refNumber: string) => void;
   onOpenNotifications: () => void;
@@ -46,6 +47,7 @@ interface ClientDashboardProps {
 
 export const ClientDashboard: React.FC<ClientDashboardProps> = ({
   onOpenUpload,
+  onEditRelease,
   onSelectRelease,
   onOpenSharePage,
   onOpenNotifications,
@@ -695,6 +697,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                   </span>
 
                   <div className="flex items-center gap-2">
+                    {rel.status === 'Corrections Required' && !isAccountRestricted && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onEditRelease(rel); }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold transition-colors"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" /> Edit &amp; Resubmit
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => handleCopyLink(rel.refNumber, e)}

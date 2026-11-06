@@ -80,6 +80,7 @@ function MainContent() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTabMode>('signin');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [editingRelease, setEditingRelease] = useState<Release | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [latestSubmittedRelease, setLatestSubmittedRelease] = useState<Release | null>(null);
@@ -203,7 +204,8 @@ function MainContent() {
     return (
       <>
         <ClientDashboard
-          onOpenUpload={() => setIsUploadOpen(true)}
+          onOpenUpload={() => { setEditingRelease(null); setIsUploadOpen(true); }}
+          onEditRelease={(release) => { setEditingRelease(release); setIsUploadOpen(true); }}
           onSelectRelease={(rel) => setSelectedRelease(rel)}
           onOpenSharePage={handleOpenShare}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
@@ -214,7 +216,8 @@ function MainContent() {
         {/* Upload Release Modal Wizard */}
         <UploadReleaseModal
           isOpen={isUploadOpen}
-          onClose={() => setIsUploadOpen(false)}
+          editingRelease={editingRelease}
+          onClose={() => { setIsUploadOpen(false); setEditingRelease(null); }}
           onSuccess={(newRel) => {
             setLatestSubmittedRelease(newRel);
           }}

@@ -35,6 +35,7 @@ interface UploadReleaseModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (newRelease: Release) => void;
+  editingRelease?: Release | null;
 }
 
 export interface TrackPrimaryArtist {
@@ -168,6 +169,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  editingRelease = null,
 }) => {
   const { user } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -187,6 +189,87 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     { id: 'pa_1', name: '', spotifyProfileUrl: '', appleMusicProfileUrl: '', spotifyProfileCreateRequested: false, appleMusicProfileCreateRequested: false },
   ]);
   const [artistLibrary, setArtistLibrary] = useState<ArtistCredit[]>([]);
+
+  // Populate the existing submission when a client opens the correction editor.
+  // Existing asset URLs and stored filenames are retained unless the client uploads replacements.
+  useEffect(() => {
+    if (!isOpen || !editingRelease) return;
+    const release = editingRelease;
+    setStep(1);
+    setTitle(release.title || '');
+    setReleaseType(release.releaseType || 'Single');
+    const primaryProfiles = release.primaryArtistProfiles?.length
+      ? release.primaryArtistProfiles
+      : (release.primaryArtists || []).map(name => ({ name, role: 'primary' as const }));
+    const featuredProfiles = release.featuredArtistProfiles?.length
+      ? release.featuredArtistProfiles
+      : (release.featuredArtists || []).map(name => ({ name, role: 'featured' as const }));
+    setPrimaryArtistsList(primaryProfiles.map((a, i) => ({
+      id: `edit_pa_${i}`, name: a.name || '', spotifyProfileUrl: a.spotifyProfileUrl || '',
+      appleMusicProfileUrl: a.appleMusicProfileUrl || '',
+      spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+    })));
+    setFeaturedArtistsList(featuredProfiles.map((a, i) => ({
+      id: `edit_fa_${i}`, name: a.name || '', spotifyProfileUrl: a.spotifyProfileUrl || '',
+      appleMusicProfileUrl: a.appleMusicProfileUrl || '',
+      spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+      appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+    })));
+    setGenre(release.genre || 'Amapiano');
+    setSubGenre(release.subGenre || '');
+    setLanguage(release.language || 'Zulu');
+    setComposers(release.composers || []);
+    setProducers(release.producers || []);
+    setTargetReleaseDate(release.targetReleaseDate || getMinTargetDate());
+    setPreviouslyReleased(!!release.previouslyReleased);
+    setPreviousReleaseDetails(release.previousReleaseDetails || '');
+    setClientNotes(release.clientNotes || '');
+    setCLine(release.cLine || currentCopyright);
+    setPLine(release.pLine || currentCopyright);
+    setUploadedArtworkUrl(release.artworkUrl || null);
+    setUploadedArtworkFilename(release.artworkFilename || null);
+    setStoredArtworkFilename(release.storedArtworkFilename || null);
+    setArtworkPreviewUrl(release.artworkUrl || null);
+    setArtworkDimensions(release.artworkDimensions || null);
+    setArtworkFile(null);
+    setTracks((release.tracks || []).map((track, i) => {
+      const profiles = track.artistProfiles || [];
+      const trackPrimaryProfiles = profiles.filter(a => a.role === 'primary');
+      const trackFeaturedProfiles = profiles.filter(a => a.role === 'featured');
+      const primary: ArtistCredit[] = trackPrimaryProfiles.length ? trackPrimaryProfiles : [{
+        name: track.primaryArtist || '', role: 'primary',
+        spotifyProfileUrl: track.primaryArtistSpotifyUrl,
+        appleMusicProfileUrl: track.primaryArtistAppleMusicUrl,
+      }];
+      const featured: ArtistCredit[] = trackFeaturedProfiles.length ? trackFeaturedProfiles : (track.featuredArtists || []).map(name => ({ name, role: 'featured' as const }));
+      return {
+        id: track.id || `edit_track_${i}`, trackNumber: track.trackNumber || i + 1,
+        title: track.title || '', version: track.version || 'Original Mix', file: null,
+        fileUrl: track.fileUrl, filename: track.filename, storedFilename: track.storedFilename,
+        fileSize: track.fileSize || 0, duration: track.duration, isrc: track.isrc || '',
+        explicit: !!track.explicit, uploadedSuccess: true,
+        primaryArtist: track.primaryArtist || '',
+        primaryArtists: primary.map(a => ({
+          name: a.name || '', spotifyProfileUrl: a.spotifyProfileUrl || '',
+          appleMusicProfileUrl: a.appleMusicProfileUrl || '',
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+        })),
+        primaryArtistSpotifyUrl: track.primaryArtistSpotifyUrl || '',
+        primaryArtistAppleMusicUrl: track.primaryArtistAppleMusicUrl || '',
+        featuredArtists: featured.map(a => ({
+          name: a.name || '', spotifyProfileUrl: a.spotifyProfileUrl || '',
+          appleMusicProfileUrl: a.appleMusicProfileUrl || '',
+          spotifyProfileCreateRequested: !!a.spotifyProfileCreateRequested,
+          appleMusicProfileCreateRequested: !!a.appleMusicProfileCreateRequested,
+        })),
+      };
+    }));
+    setConfirmedAccuracy(false);
+    setSubmittedRelease(null);
+    setSubmitError(null);
+  }, [isOpen, editingRelease?.id]);
   useEffect(() => {
     if (!isOpen || !user?.id) return;
     let cancelled = false;
@@ -217,8 +300,8 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
   const [previouslyReleased, setPreviouslyReleased] = useState(false);
   const [previousReleaseDetails, setPreviousReleaseDetails] = useState('');
   const currentCopyright = `${new Date().getFullYear()} Mid-Ama Promo`;
-  const [cLine] = useState(currentCopyright);
-  const [pLine] = useState(currentCopyright);
+  const [cLine, setCLine] = useState(currentCopyright);
+  const [pLine, setPLine] = useState(currentCopyright);
 
   // Step 2: Cover Artwork Upload
   const localPreviewRef = useRef<string | null>(null);
@@ -299,7 +382,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
 
   // When modal is opened/closed
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !editingRelease) {
       try {
         const saved = localStorage.getItem(DRAFT_KEY);
         if (saved && !title && primaryArtistsList.every((a) => !(a?.name || '').trim())) {
@@ -307,7 +390,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         }
       } catch (_) {}
     }
-  }, [isOpen]);
+  }, [isOpen, editingRelease?.id]);
 
   const handleSaveDraft = () => {
     try {
@@ -1093,7 +1176,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
     if (step > 1) setStep((step - 1) as any);
   };
 
-  // Submit Release to server
+  // {editingRelease ? 'Resubmit Corrected Release' : 'Submit Release'} to server
   const handleFinalSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -1209,7 +1292,9 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         allowPublicShare: true,
       };
 
-      const res = await api.createRelease(payload);
+      const res = editingRelease
+        ? await api.resubmitCorrectedRelease(editingRelease.id, payload)
+        : await api.createRelease(payload);
       setSubmittedRelease(res.release);
       localStorage.removeItem(DRAFT_KEY);
 
@@ -1244,7 +1329,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
           <div>
             <h2 className="text-lg font-bold text-white font-['Space_Grotesk'] flex items-center gap-2">
               <Disc className="w-5 h-5 text-red-500" />
-              <span>Submit New Music Release</span>
+              <span>{editingRelease ? 'Edit & Resubmit Release' : 'Submit New Music Release'}</span>
             </h2>
             <p className="text-xs text-neutral-400">
               Submit your music master tracks, square cover artwork, and release metadata for review.
@@ -1260,7 +1345,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
         </div>
 
         {/* Draft Notice Banner */}
-        {hasDraftNotice && !submittedRelease && (
+        {hasDraftNotice && !editingRelease && !submittedRelease && (
           <div className="shrink-0 px-6 py-2.5 bg-amber-950/40 border-b border-amber-900/60 flex items-center justify-between text-xs text-amber-300">
             <span className="flex items-center gap-1.5">
               <BookmarkCheck className="w-4 h-4 text-amber-400 shrink-0" />
@@ -1348,13 +1433,13 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
               <div className="space-y-2">
                 <span className="text-xs font-mono text-emerald-400 uppercase tracking-widest font-semibold flex items-center justify-center gap-1.5">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  <span>Release submitted successfully.</span>
+                  <span>{editingRelease ? 'Corrected release resubmitted successfully.' : 'Release submitted successfully.'}</span>
                 </span>
                 <h3 className="text-2xl font-bold text-white font-['Space_Grotesk']">
                   {submittedRelease.title}
                 </h3>
                 <p className="text-xs sm:text-sm text-neutral-300 max-w-md mx-auto">
-                  Your music submission has been received and logged in the system. The status is now{' '}
+                  {editingRelease ? 'Your corrected release has been received and logged against the original release record.' : 'Your music submission has been received and logged in the system.'} The status is now{' '}
                   <strong>Pending Review</strong>. Mid-Ama Promo administration has been notified.
                 </p>
               </div>
@@ -2416,7 +2501,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                     </h3>
                     <p className="text-xs text-neutral-400">
                       Carefully review your release metadata, cover artwork, and audio files before clicking{' '}
-                      <strong>SUBMIT RELEASE</strong>.
+                      <strong>{editingRelease ? 'RESUBMIT CORRECTED RELEASE' : 'SUBMIT RELEASE'}</strong>.
                     </p>
                   </div>
 
@@ -2589,7 +2674,7 @@ export const UploadReleaseModal: React.FC<UploadReleaseModalProps> = ({
                   ) : (
                     <>
                       <Disc className="w-4 h-4" />
-                      <span>SUBMIT RELEASE</span>
+                      <span>{editingRelease ? 'RESUBMIT CORRECTED RELEASE' : 'SUBMIT RELEASE'}</span>
                     </>
                   )}
                 </button>
