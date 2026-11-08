@@ -144,7 +144,7 @@ const uploadArtwork = multer({
 
 const VIDEO_DIR = path.join(UPLOADS_DIR, 'videos');
 fs.mkdirSync(VIDEO_DIR, { recursive: true });
-const videoStorage = multer.diskStorage({ destination: (_req, _file, cb) => cb(null, VIDEO_DIR), filename: (_req, file, cb) => cb(null, `video_${Date.now()}_${Math.random().toString(36).slice(2,8)}${path.extname(file.originalname).toLowerCase()}`) });
+const videoStorage = multer.diskStorage({ destination: (_req, _file, cb) => cb(null, VIDEO_DIR), filename: (req, file, cb) => { const user = (req as AuthenticatedRequest).user; const owner = user ? Buffer.from(user.id).toString('hex') : 'unknown'; cb(null, `video_${owner}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(file.originalname).toLowerCase()}`); } });
 const uploadVideo = multer({ storage: videoStorage, limits: { fileSize: 500 * 1024 * 1024 }, fileFilter: (_req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); if (['.mp4','.mov','.m4v'].includes(ext) || ['video/mp4','video/quicktime','video/x-m4v'].includes(file.mimetype.toLowerCase())) cb(null, true); else cb(new Error('Upload an MP4, MOV or M4V video file.')); } });
 
 const uploadAudio = multer({
@@ -1670,29 +1670,110 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
 }
 
 // ----------------------------------------------------
-// VIDEO DISTRIBUTION SUBMISSIONS (available after VEVO approval)
+// VEVO MUSIC VIDEO DISTRIBUTION
+// Eligibility is always derived from authoritative release and track records.
 // ----------------------------------------------------
-apiRouter.post('/upload/video', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response, next: NextFunction) => { if (!db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'A VEVO channel application must be approved before video upload is available.' }); next(); }, uploadVideo.single('video'), (req: AuthenticatedRequest, res: Response) => {
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isVideoEligibleRelease(release: Release, today = localDateKey()): boolean {
+  const releaseDate = String(release.targetReleaseDate || '').slice(0, 10);
+  return release.status === 'Completed' && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate < today;
+}
+
+apiRouter.get('/video-eligible-tracks', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can access eligible video tracks.' });
+  if (!db.getVevoApplicationsForUser(user.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'Your VEVO channel application must be approved before viewing eligible tracks.' });
+  const tracks = db.getReleasesByUserId(user.id)
+    .filter(release => release.userId === user.id && isVideoEligibleRelease(release))
+    .flatMap(release => (Array.isArray(release.tracks) ? release.tracks : []).map(track => ({
+      releaseId: release.id,
+      trackId: track.id,
+      releaseRefNumber: release.refNumber,
+      releaseTitle: release.title,
+      trackTitle: track.title,
+      artistName: track.primaryArtist || (Array.isArray(release.primaryArtists) ? release.primaryArtists.join(', ') : release.artistLabelName),
+      releaseDate: String(release.targetReleaseDate).slice(0, 10),
+    })));
+  return res.json({ tracks });
+});
+
+apiRouter.post('/upload/video', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (req.user!.role !== 'client' || !db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'An approved VEVO channel is required before video upload is available.' });
+  next();
+}, uploadVideo.single('video'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'Choose a video file to upload.' });
-  const approved = db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved');
-  if (!approved) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(403).json({ error: 'A VEVO channel application must be approved before video submission is available.' }); }
-  let storedFilename = req.file.filename; let fileUrl = `/uploads/videos/${req.file.filename}`;
-  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/videos/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'video/mp4'); try { fs.unlinkSync(req.file.path); } catch {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
+  const user = req.user!;
+  const ownerPrefix = `video_${Buffer.from(user.id).toString('hex')}_`;
+  if (!req.file.filename.startsWith(ownerPrefix)) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(403).json({ error: 'Video upload ownership could not be verified.' }); }
+  let storedFilename = req.file.filename;
+  let fileUrl = `/uploads/videos/${req.file.filename}`;
+  if (remoteStorageConfigured) {
+    const objectPath = `${user.id}/videos/${req.file.filename}`;
+    remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'video/mp4');
+    try { fs.unlinkSync(req.file.path); } catch {}
+    storedFilename = `r2:${objectPath}`;
+    fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`;
+  }
   return res.json({ fileUrl, filename: req.file.originalname, storedFilename, fileSize: req.file.size });
 });
+
 apiRouter.post('/video-submissions', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
+  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can submit music videos.' });
   if (!db.getVevoApplicationsForUser(user.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'Your VEVO channel application must be approved before submitting a video.' });
-  const { videoTitle, videoType, videoUrl, videoFilename, storedVideoFilename, fileSize, artistName, director, language, explicit, releaseDate, notes } = req.body || {};
-  if (!String(videoTitle || '').trim() || !String(artistName || '').trim() || !String(videoUrl || '').trim() || !String(storedVideoFilename || '').trim()) return res.status(400).json({ error: 'Video title, artist name and uploaded video file are required.' });
+  const { releaseId, trackId, storedVideoFilename, videoFilename, fileSize, director, language, explicit, notes } = req.body || {};
+  if (!releaseId || !trackId) return res.status(400).json({ error: 'Select an eligible released track.' });
+  const release = db.findReleaseById(String(releaseId));
+  if (!release || release.userId !== user.id) return res.status(403).json({ error: 'The selected release does not belong to your account.' });
+  if (!isVideoEligibleRelease(release)) return res.status(400).json({ error: 'This release is not eligible. It must be Completed and its original release date must have passed.' });
+  const track = Array.isArray(release.tracks) ? release.tracks.find(item => item.id === String(trackId)) : undefined;
+  if (!track) return res.status(400).json({ error: 'The selected track does not belong to this release.' });
+  if (typeof storedVideoFilename !== 'string' || !storedVideoFilename.trim()) return res.status(400).json({ error: 'Upload the official music video before submitting.' });
+
+  const localOwnerPrefix = `video_${Buffer.from(user.id).toString('hex')}_`;
+  let videoUrl: string;
+  let canonicalStoredName: string;
+  if (storedVideoFilename.startsWith(`r2:${user.id}/videos/`)) {
+    const objectPath = storedVideoFilename.slice(3);
+    const objectName = path.posix.basename(objectPath);
+    if (!objectName.startsWith(localOwnerPrefix)) return res.status(403).json({ error: 'The uploaded video does not belong to your account.' });
+    canonicalStoredName = `r2:${objectPath}`;
+    videoUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`;
+  } else {
+    const safeName = path.basename(storedVideoFilename);
+    if (safeName !== storedVideoFilename || !safeName.startsWith(localOwnerPrefix)) return res.status(403).json({ error: 'The uploaded video does not belong to your account.' });
+    const localPath = path.join(VIDEO_DIR, safeName);
+    if (!fs.existsSync(localPath)) return res.status(400).json({ error: 'The uploaded video file could not be found. Please upload it again.' });
+    canonicalStoredName = safeName;
+    videoUrl = `/uploads/videos/${safeName}`;
+  }
+
+  const artistName = track.primaryArtist || (Array.isArray(release.primaryArtists) ? release.primaryArtists.join(', ') : release.artistLabelName);
   const now = new Date().toISOString();
-  const item: VideoSubmission = { id: `vid_${crypto.randomUUID()}`, userId: user.id, userEmail: user.email, clientName: user.name, artistName: String(artistName).trim().slice(0,180), videoTitle: String(videoTitle).trim().slice(0,180), videoType: ['Official Music Video','Visualizer','Lyric Video','Other'].includes(videoType) ? videoType : 'Official Music Video', videoUrl: String(videoUrl), videoFilename: String(videoFilename || 'video.mp4'), storedVideoFilename: String(storedVideoFilename), fileSize: Number(fileSize) || 0, director: String(director || '').trim().slice(0,180) || undefined, language: String(language || '').trim().slice(0,80) || undefined, explicit: !!explicit, releaseDate: String(releaseDate || '').trim() || undefined, notes: String(notes || '').trim().slice(0,3000) || undefined, status: 'Pending Review', createdAt: now, updatedAt: now };
+  const item: VideoSubmission = {
+    id: `vid_${crypto.randomUUID()}`, userId: user.id, userEmail: user.email, clientName: user.name,
+    artistName: String(artistName || release.artistLabelName || user.name).slice(0, 180),
+    videoTitle: String(track.title).slice(0, 180), videoType: 'Official Music Video', videoUrl,
+    videoFilename: String(videoFilename || 'music-video.mp4').slice(0, 255), storedVideoFilename: canonicalStoredName,
+    fileSize: Math.max(0, Number(fileSize) || 0), releaseId: release.id, trackId: track.id,
+    releasedTrackTitle: track.title, releaseRefNumber: release.refNumber, releaseTitle: release.title,
+    director: String(director || '').trim().slice(0, 180) || undefined,
+    language: String(language || '').trim().slice(0, 80) || undefined, explicit: !!explicit,
+    notes: String(notes || '').trim().slice(0, 3000) || undefined,
+    status: 'Pending Review', createdAt: now, updatedAt: now,
+  };
   db.createVideoSubmission(item);
   void Promise.all([
-    sendAdminVideoSubmissionEmail({ videoTitle: item.videoTitle, artistName: item.artistName, videoType: item.videoType, clientName: user.name, email: user.email, director: item.director, language: item.language, releaseDate: item.releaseDate, notes: item.notes, createdAt: now }),
-    sendNotification({ recipientEmail: 'midnightamapiano@yahoo.com', recipientName: 'Mid-Ama Promo Administration', subject: `New Video Distribution Submission — ${item.videoTitle}`, template: 'submission_received', metadata: { submissionId: item.id, artistName: item.artistName, clientName: user.name, clientEmail: user.email, videoTitle: item.videoTitle, status: item.status } }),
+    sendAdminVideoSubmissionEmail({ videoTitle: item.videoTitle, artistName: item.artistName, videoType: item.videoType, clientName: user.name, email: user.email, director: item.director, language: item.language, notes: item.notes, createdAt: now }),
+    sendNotification({ recipientEmail: 'midnightamapiano@yahoo.com', recipientName: 'Mid-Ama Promo Administration', subject: `New VEVO Music Video Submission — ${item.videoTitle}`, template: 'submission_received', metadata: { submissionId: item.id, artistName: item.artistName, clientName: user.name, clientEmail: user.email, videoTitle: item.videoTitle, releaseRefNumber: release.refNumber, status: item.status } }),
   ]).catch(err => console.error('[VIDEO] Admin notification failed:', err));
-  return res.status(201).json({ message: 'Your video has been submitted for review.', submission: item });
+  return res.status(201).json({ message: 'Your music video has been submitted for review.', submission: item });
 });
 apiRouter.get('/video-submissions', authMiddleware, (req: AuthenticatedRequest, res: Response) => res.json({ submissions: req.user!.role === 'admin' ? db.getVideoSubmissions() : db.getVideoSubmissionsForUser(req.user!.id) }));
 apiRouter.patch('/admin/video-submissions/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {

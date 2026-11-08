@@ -254,11 +254,12 @@ class ApiService {
   async updateVevoApplication(id: string, payload: { status: 'Approved' | 'Rejected'; adminNote?: string }): Promise<{ message: string; application: any }> {
     return this.request(`/api/admin/vevo/applications/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
   }
+  async getVideoEligibleTracks(): Promise<{ tracks: Array<{ releaseId: string; trackId: string; releaseRefNumber: string; releaseTitle: string; trackTitle: string; artistName: string; releaseDate: string }> }> { return this.request('/api/video-eligible-tracks'); }
   async uploadVideo(file: File): Promise<{ fileUrl: string; filename: string; storedFilename: string; fileSize: number }> {
     const formData = new FormData(); formData.append('video', file);
     return this.request('/api/upload/video', { method: 'POST', body: formData });
   }
-  async submitVideoSubmission(payload: any): Promise<{ message: string; submission: any }> { return this.request('/api/video-submissions', { method: 'POST', body: JSON.stringify(payload) }); }
+  async submitVideoSubmission(payload: { releaseId: string; trackId: string; storedVideoFilename: string; videoFilename: string; fileSize: number; director?: string; language?: string; explicit?: boolean; notes?: string }): Promise<{ message: string; submission: any }> { return this.request('/api/video-submissions', { method: 'POST', body: JSON.stringify(payload) }); }
   async getVideoSubmissions(): Promise<{ submissions: any[] }> { return this.request('/api/video-submissions'); }
   async updateVideoSubmission(id: string, payload: { status: 'Approved'|'Corrections Required'|'Rejected'|'Delivered'; adminNote?: string }): Promise<{ message: string; submission: any }> { return this.request(`/api/admin/video-submissions/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
 

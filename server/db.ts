@@ -263,6 +263,7 @@ export interface VideoSubmission {
   id: string; userId: string; userEmail: string; clientName: string; artistName: string;
   videoTitle: string; videoType: 'Official Music Video' | 'Visualizer' | 'Lyric Video' | 'Other';
   videoUrl: string; videoFilename: string; storedVideoFilename?: string; fileSize: number;
+  releaseId?: string; trackId?: string; releasedTrackTitle?: string; releaseRefNumber?: string; releaseTitle?: string;
   director?: string; language?: string; explicit: boolean; releaseDate?: string; notes?: string;
   status: 'Pending Review' | 'Approved' | 'Corrections Required' | 'Rejected' | 'Delivered';
   adminNote?: string; createdAt: string; updatedAt: string;
