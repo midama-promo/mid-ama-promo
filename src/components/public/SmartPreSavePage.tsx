@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ExternalLink, Music2, Loader2, Sparkles } from 'lucide-react';
 
 type DspLink = { label: string; url: string };
-type SmartPage = { title: string; artist: string; artworkUrl?: string; dspLinks: DspLink[] };
+type SmartPage = { title: string; artist: string; artworkUrl?: string; dspLinks: DspLink[]; preSaveLinks?: DspLink[]; releaseDate?: string; phase?: 'presave' | 'smartlink'; preSavedCount?: number };
 
 // Simple Icons CDN marks are used where an official brand glyph is available.
 // The coloured letter fallback keeps every DSP identifiable if a logo cannot load.
@@ -44,6 +44,12 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
   const [page, setPage] = useState<SmartPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [visitorId, setVisitorId] = useState('');
+  const [listenerStatus, setListenerStatus] = useState<'started' | 'pre-saved' | ''>('');
+  const [statusMessage, setStatusMessage] = useState('');
+  useEffect(() => {
+    try { let id = localStorage.getItem('ma-presave-visitor'); if (!id) { id = crypto.randomUUID(); localStorage.setItem('ma-presave-visitor', id); } setVisitorId(id); } catch { setVisitorId(crypto.randomUUID()); }
+  }, []);
   useEffect(() => {
     let live = true;
     fetch(`/api/public/presave/${encodeURIComponent(slug)}`, { cache: 'no-store' })
@@ -53,6 +59,21 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [slug]);
+
+  useEffect(() => {
+    if (!visitorId || !slug) return;
+    try { const saved = localStorage.getItem(`ma-presave-status:${slug}:${visitorId}`); if (saved === 'started' || saved === 'pre-saved') setListenerStatus(saved); } catch {}
+  }, [visitorId, slug]);
+
+  const updateListenerStatus = async (status: 'started' | 'pre-saved') => {
+    if (!visitorId) return;
+    try {
+      const response = await fetch(`/api/public/presave/${encodeURIComponent(slug)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visitorId, status }) });
+      if (!response.ok) throw new Error('Could not save your status.');
+      setListenerStatus(status); setStatusMessage(status === 'pre-saved' ? 'Your pre-save confirmation has been recorded.' : 'Pre-save opened in a new tab. Return here when you are finished.');
+      try { localStorage.setItem(`ma-presave-status:${slug}:${visitorId}`, status); } catch {}
+    } catch (error: any) { setStatusMessage(error.message || 'Could not update your status.'); }
+  };
 
   return <main className="ma-presave-page relative isolate min-h-screen overflow-hidden bg-[#08090d] px-4 py-7 text-white sm:px-6 sm:py-12">
     {page?.artworkUrl && <div aria-hidden="true" className="fixed inset-0 -z-20 scale-110 bg-cover bg-center opacity-35 blur-3xl" style={{ backgroundImage: `url("${page.artworkUrl.replace(/"/g, '')}")` }}/>}
@@ -69,15 +90,22 @@ export const SmartPreSavePage: React.FC<{ slug: string }> = ({ slug }) => {
             <p className="mt-8 text-[10px] font-bold uppercase tracking-[0.32em] text-red-200/80">A new release</p>
             <h1 className="mt-3 break-words font-[Space_Grotesk,Plus_Jakarta_Sans,sans-serif] text-3xl font-extrabold leading-tight tracking-[-0.045em] text-white drop-shadow-lg sm:text-5xl">{page.title}</h1>
             {page.artist && <p className="mt-3 text-base font-semibold text-white/85 sm:text-lg">{page.artist}</p>}
-            <p className="mx-auto mt-7 max-w-md text-sm leading-6 text-white/80">Choose your favourite music platform below and pre-save this release.</p>
+            <p className="mx-auto mt-7 max-w-md text-sm leading-6 text-white/80">{page.phase === 'smartlink' ? 'The release is out now. Choose your favourite platform to listen.' : 'Choose your favourite music platform below to pre-save this release.'}</p>
           </div>
           <div className="relative mt-7 grid gap-3 sm:mt-8">
-            {page.dspLinks.map((dsp, i) => <a key={`${dsp.label}-${i}`} href={dsp.url} target="_blank" rel="noopener noreferrer" className="ma-presave-dsp group flex min-h-[76px] items-center gap-4 rounded-2xl border border-white/12 bg-white/[0.075] px-4 py-3.5 text-left shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-red-300/40 hover:bg-white/[0.13] focus:outline-none focus:ring-2 focus:ring-red-300/70 sm:px-5">
+            {(page.phase === 'smartlink' ? page.dspLinks : (page.preSaveLinks || [])).map((dsp, i) => <a key={`${dsp.label}-${i}`} href={dsp.url} target="_blank" rel="noopener noreferrer" onClick={() => { if (page.phase !== 'smartlink') void updateListenerStatus('started'); }} className="ma-presave-dsp group flex min-h-[76px] items-center gap-4 rounded-2xl border border-white/12 bg-white/[0.075] px-4 py-3.5 text-left shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-red-300/40 hover:bg-white/[0.13] focus:outline-none focus:ring-2 focus:ring-red-300/70 sm:px-5">
               <DspBrand label={dsp.label}/>
-              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-extrabold text-white sm:text-base">{dsp.label}</span><span className="mt-1 block text-[11px] font-medium text-white/65">Pre-save on {dsp.label}</span></span>
-              <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-red-200/20 bg-red-500/15 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-red-100 transition group-hover:bg-red-500/25">Pre-save <ExternalLink size={12}/></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-extrabold text-white sm:text-base">{dsp.label}</span><span className="mt-1 block text-[11px] font-medium text-white/65">{page.phase === 'smartlink' ? `Listen on ${dsp.label}` : `Pre-save on ${dsp.label}`}</span></span>
+              <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-red-200/20 bg-red-500/15 px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-red-100 transition group-hover:bg-red-500/25">{page.phase === 'smartlink' ? 'Listen' : 'Pre-save'} <ExternalLink size={12}/></span>
             </a>)}
+            {page.phase !== 'smartlink' && (!page.preSaveLinks || page.preSaveLinks.length === 0) && <p className="rounded-xl border border-amber-200/20 bg-amber-500/10 p-4 text-center text-xs text-amber-100">Pre-save platform links have not been configured for this page yet. Please contact Mid-Ama Promo.</p>}
+            {page.phase === 'smartlink' && page.dspLinks.length === 0 && <p className="rounded-xl border border-amber-200/20 bg-amber-500/10 p-4 text-center text-xs text-amber-100">Listen destinations have not been configured yet.</p>}
           </div>
+          {page.phase !== 'smartlink' && <div className="relative mt-5 space-y-3 text-center">
+            <p className="text-[11px] text-white/55">{listenerStatus === 'pre-saved' ? 'Status: Pre-saved (listener-confirmed)' : listenerStatus === 'started' ? 'Status: Pre-save started — waiting for your confirmation' : 'After completing the platform’s pre-save, return here to confirm.'}</p>
+            <button type="button" onClick={() => void updateListenerStatus('pre-saved')} disabled={!visitorId || listenerStatus === 'pre-saved'} className="rounded-full border border-emerald-300/30 bg-emerald-500/15 px-5 py-3 text-xs font-bold text-emerald-100 transition hover:bg-emerald-500/25 disabled:opacity-50">{listenerStatus === 'pre-saved' ? 'Pre-saved ✓' : 'I have completed my pre-save'}</button>
+            {statusMessage && <p role="status" className="text-[11px] text-white/65">{statusMessage}</p>}
+          </div>}
           <div className="relative mt-8 flex items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.16em] text-white/45"><span className="h-px w-7 bg-white/15"/> POWERED BY MID-AMA PROMO™ <span className="h-px w-7 bg-white/15"/></div>
         </section>
       </>}

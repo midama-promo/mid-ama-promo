@@ -250,7 +250,14 @@ export interface EmailCampaign {
 }
 
 export interface SmartPreSavePage {
-  id: string; slug: string; title: string; artist: string; artworkUrl?: string; soundblastUrl: string; dspLinks: Array<{ label: string; url: string }>; active: boolean; createdAt: string; updatedAt: string;
+  id: string; slug: string; title: string; artist: string; artworkUrl?: string; soundblastUrl: string;
+  /** Pre-release provider authorization/action URLs. */
+  preSaveLinks?: Array<{ label: string; url: string }>;
+  /** Direct DSP release destinations used after releaseDate. */
+  dspLinks: Array<{ label: string; url: string }>;
+  releaseDate?: string; active: boolean; createdAt: string; updatedAt: string;
+  /** Anonymous browser IDs with listener-confirmed status; no names or contact details. */
+  listenerStatuses?: Record<string, 'started' | 'pre-saved'>;
 }
 
 export interface VevoApplication {
@@ -263,7 +270,6 @@ export interface VideoSubmission {
   id: string; userId: string; userEmail: string; clientName: string; artistName: string;
   videoTitle: string; videoType: 'Official Music Video' | 'Visualizer' | 'Lyric Video' | 'Other';
   videoUrl: string; videoFilename: string; storedVideoFilename?: string; fileSize: number;
-  releaseId?: string; trackId?: string; releasedTrackTitle?: string; releaseRefNumber?: string; releaseTitle?: string;
   director?: string; language?: string; explicit: boolean; releaseDate?: string; notes?: string;
   status: 'Pending Review' | 'Approved' | 'Corrections Required' | 'Rejected' | 'Delivered';
   adminNote?: string; createdAt: string; updatedAt: string;

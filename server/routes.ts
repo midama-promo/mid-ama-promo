@@ -144,7 +144,7 @@ const uploadArtwork = multer({
 
 const VIDEO_DIR = path.join(UPLOADS_DIR, 'videos');
 fs.mkdirSync(VIDEO_DIR, { recursive: true });
-const videoStorage = multer.diskStorage({ destination: (_req, _file, cb) => cb(null, VIDEO_DIR), filename: (req, file, cb) => { const user = (req as AuthenticatedRequest).user; const owner = user ? Buffer.from(user.id).toString('hex') : 'unknown'; cb(null, `video_${owner}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(file.originalname).toLowerCase()}`); } });
+const videoStorage = multer.diskStorage({ destination: (_req, _file, cb) => cb(null, VIDEO_DIR), filename: (_req, file, cb) => cb(null, `video_${Date.now()}_${Math.random().toString(36).slice(2,8)}${path.extname(file.originalname).toLowerCase()}`) });
 const uploadVideo = multer({ storage: videoStorage, limits: { fileSize: 500 * 1024 * 1024 }, fileFilter: (_req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); if (['.mp4','.mov','.m4v'].includes(ext) || ['video/mp4','video/quicktime','video/x-m4v'].includes(file.mimetype.toLowerCase())) cb(null, true); else cb(new Error('Upload an MP4, MOV or M4V video file.')); } });
 
 const uploadAudio = multer({
@@ -1635,13 +1635,14 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
         const payload = JSON.parse(Buffer.from(cd, 'base64url').toString('utf8'));
         const service = String(payload.srvc || payload.service || '').toLowerCase();
         const label = storeNames[service] || service.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        if (label && /^https:$/.test(parsed.protocol)) found.set(label, parsed.toString());
+        // This is a Feature.fm/Linkfire action endpoint, not a direct DSP release URL.
+        // Never import it as a Listen destination; the admin must provide the provider action separately.
       } catch { /* Ignore malformed tracking payloads rather than inventing a destination. */ }
       continue;
     }
     const labelText = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     const dsp = classify(parsed.toString(), labelText);
-    if (dsp && ['http:', 'https:'].includes(parsed.protocol)) found.set(dsp, parsed.toString());
+    if (dsp && ['http:', 'https:'].includes(parsed.protocol) && !isAllowedSmartlinkHost(parsed.hostname) && !/linkfire|lnk\.to|ffm\.to/i.test(parsed.hostname)) found.set(dsp, parsed.toString());
   }
   // Some Feature.fm versions serialize the same action URLs in script state.
   // Decode only known api.ffm.to action URLs and retain their original signed query string.
@@ -1654,7 +1655,7 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
       const payload = JSON.parse(Buffer.from(cd, 'base64url').toString('utf8'));
       const service = String(payload.srvc || payload.service || '').toLowerCase();
       const label = storeNames[service] || service.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      if (label && parsed.hostname === 'api.ffm.to') found.set(label, parsed.toString());
+      // Do not treat the provider's signed action endpoint as a post-release store URL.
     } catch { /* Ignore malformed serialized entries. */ }
   }
   // Fallback for ordinary, non-Feature.fm smartlink pages.
@@ -1663,117 +1664,36 @@ function extractSoundBlastMetadata(html: string, sourceUrl: string) {
     for (const raw of html.match(urlRe) || []) {
       const url = raw.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&').replace(/[),]+$/g, '');
       const dsp = classify(url, '');
-      if (dsp && /^https?:\/\//i.test(url)) { try { const u = new URL(url); if (!['api.ffm.to', 'ffm.to'].includes(u.hostname)) found.set(dsp, u.toString()); } catch {} }
+      if (dsp && /^https?:\/\//i.test(url)) { try { const u = new URL(url); if (!isAllowedSmartlinkHost(u.hostname) && !/linkfire|lnk\.to|ffm\.to/i.test(u.hostname)) found.set(dsp, u.toString()); } catch {} }
     }
   }
   return { title, artist, artworkUrl, dspLinks: [...found].map(([label, url]) => ({ label, url })), sourceUrl };
 }
 
 // ----------------------------------------------------
-// VEVO MUSIC VIDEO DISTRIBUTION
-// Eligibility is always derived from authoritative release and track records.
+// VIDEO DISTRIBUTION SUBMISSIONS (available after VEVO approval)
 // ----------------------------------------------------
-function localDateKey(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function isVideoEligibleRelease(release: Release, today = localDateKey()): boolean {
-  const releaseDate = String(release.targetReleaseDate || '').slice(0, 10);
-  return release.status === 'Completed' && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate < today;
-}
-
-apiRouter.get('/video-eligible-tracks', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
-  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can access eligible video tracks.' });
-  if (!db.getVevoApplicationsForUser(user.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'Your VEVO channel application must be approved before viewing eligible tracks.' });
-  const tracks = db.getReleasesByUserId(user.id)
-    .filter(release => release.userId === user.id && isVideoEligibleRelease(release))
-    .flatMap(release => (Array.isArray(release.tracks) ? release.tracks : []).map(track => ({
-      releaseId: release.id,
-      trackId: track.id,
-      releaseRefNumber: release.refNumber,
-      releaseTitle: release.title,
-      trackTitle: track.title,
-      artistName: track.primaryArtist || (Array.isArray(release.primaryArtists) ? release.primaryArtists.join(', ') : release.artistLabelName),
-      releaseDate: String(release.targetReleaseDate).slice(0, 10),
-    })));
-  return res.json({ tracks });
-});
-
-apiRouter.post('/upload/video', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  if (req.user!.role !== 'client' || !db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'An approved VEVO channel is required before video upload is available.' });
-  next();
-}, uploadVideo.single('video'), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/upload/video', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response, next: NextFunction) => { if (!db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'A VEVO channel application must be approved before video upload is available.' }); next(); }, uploadVideo.single('video'), (req: AuthenticatedRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'Choose a video file to upload.' });
-  const user = req.user!;
-  const ownerPrefix = `video_${Buffer.from(user.id).toString('hex')}_`;
-  if (!req.file.filename.startsWith(ownerPrefix)) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(403).json({ error: 'Video upload ownership could not be verified.' }); }
-  let storedFilename = req.file.filename;
-  let fileUrl = `/uploads/videos/${req.file.filename}`;
-  if (remoteStorageConfigured) {
-    const objectPath = `${user.id}/videos/${req.file.filename}`;
-    remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'video/mp4');
-    try { fs.unlinkSync(req.file.path); } catch {}
-    storedFilename = `r2:${objectPath}`;
-    fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`;
-  }
+  const approved = db.getVevoApplicationsForUser(req.user!.id).some(a => a.status === 'Approved');
+  if (!approved) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(403).json({ error: 'A VEVO channel application must be approved before video submission is available.' }); }
+  let storedFilename = req.file.filename; let fileUrl = `/uploads/videos/${req.file.filename}`;
+  if (remoteStorageConfigured) { const objectPath = `${req.user!.id}/videos/${req.file.filename}`; remoteUploadFile(req.file.path, objectPath, req.file.mimetype || 'video/mp4'); try { fs.unlinkSync(req.file.path); } catch {} storedFilename = `r2:${objectPath}`; fileUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`; }
   return res.json({ fileUrl, filename: req.file.originalname, storedFilename, fileSize: req.file.size });
 });
-
 apiRouter.post('/video-submissions', authMiddleware, activeClientOnly, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
-  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can submit music videos.' });
   if (!db.getVevoApplicationsForUser(user.id).some(a => a.status === 'Approved')) return res.status(403).json({ error: 'Your VEVO channel application must be approved before submitting a video.' });
-  const { releaseId, trackId, storedVideoFilename, videoFilename, fileSize, director, language, explicit, notes } = req.body || {};
-  if (!releaseId || !trackId) return res.status(400).json({ error: 'Select an eligible released track.' });
-  const release = db.findReleaseById(String(releaseId));
-  if (!release || release.userId !== user.id) return res.status(403).json({ error: 'The selected release does not belong to your account.' });
-  if (!isVideoEligibleRelease(release)) return res.status(400).json({ error: 'This release is not eligible. It must be Completed and its original release date must have passed.' });
-  const track = Array.isArray(release.tracks) ? release.tracks.find(item => item.id === String(trackId)) : undefined;
-  if (!track) return res.status(400).json({ error: 'The selected track does not belong to this release.' });
-  if (typeof storedVideoFilename !== 'string' || !storedVideoFilename.trim()) return res.status(400).json({ error: 'Upload the official music video before submitting.' });
-
-  const localOwnerPrefix = `video_${Buffer.from(user.id).toString('hex')}_`;
-  let videoUrl: string;
-  let canonicalStoredName: string;
-  if (storedVideoFilename.startsWith(`r2:${user.id}/videos/`)) {
-    const objectPath = storedVideoFilename.slice(3);
-    const objectName = path.posix.basename(objectPath);
-    if (!objectName.startsWith(localOwnerPrefix)) return res.status(403).json({ error: 'The uploaded video does not belong to your account.' });
-    canonicalStoredName = `r2:${objectPath}`;
-    videoUrl = `/api/assets/${encodeRemoteAssetPath(objectPath)}`;
-  } else {
-    const safeName = path.basename(storedVideoFilename);
-    if (safeName !== storedVideoFilename || !safeName.startsWith(localOwnerPrefix)) return res.status(403).json({ error: 'The uploaded video does not belong to your account.' });
-    const localPath = path.join(VIDEO_DIR, safeName);
-    if (!fs.existsSync(localPath)) return res.status(400).json({ error: 'The uploaded video file could not be found. Please upload it again.' });
-    canonicalStoredName = safeName;
-    videoUrl = `/uploads/videos/${safeName}`;
-  }
-
-  const artistName = track.primaryArtist || (Array.isArray(release.primaryArtists) ? release.primaryArtists.join(', ') : release.artistLabelName);
+  const { videoTitle, videoType, videoUrl, videoFilename, storedVideoFilename, fileSize, artistName, director, language, explicit, releaseDate, notes } = req.body || {};
+  if (!String(videoTitle || '').trim() || !String(artistName || '').trim() || !String(videoUrl || '').trim() || !String(storedVideoFilename || '').trim()) return res.status(400).json({ error: 'Video title, artist name and uploaded video file are required.' });
   const now = new Date().toISOString();
-  const item: VideoSubmission = {
-    id: `vid_${crypto.randomUUID()}`, userId: user.id, userEmail: user.email, clientName: user.name,
-    artistName: String(artistName || release.artistLabelName || user.name).slice(0, 180),
-    videoTitle: String(track.title).slice(0, 180), videoType: 'Official Music Video', videoUrl,
-    videoFilename: String(videoFilename || 'music-video.mp4').slice(0, 255), storedVideoFilename: canonicalStoredName,
-    fileSize: Math.max(0, Number(fileSize) || 0), releaseId: release.id, trackId: track.id,
-    releasedTrackTitle: track.title, releaseRefNumber: release.refNumber, releaseTitle: release.title,
-    director: String(director || '').trim().slice(0, 180) || undefined,
-    language: String(language || '').trim().slice(0, 80) || undefined, explicit: !!explicit,
-    notes: String(notes || '').trim().slice(0, 3000) || undefined,
-    status: 'Pending Review', createdAt: now, updatedAt: now,
-  };
+  const item: VideoSubmission = { id: `vid_${crypto.randomUUID()}`, userId: user.id, userEmail: user.email, clientName: user.name, artistName: String(artistName).trim().slice(0,180), videoTitle: String(videoTitle).trim().slice(0,180), videoType: ['Official Music Video','Visualizer','Lyric Video','Other'].includes(videoType) ? videoType : 'Official Music Video', videoUrl: String(videoUrl), videoFilename: String(videoFilename || 'video.mp4'), storedVideoFilename: String(storedVideoFilename), fileSize: Number(fileSize) || 0, director: String(director || '').trim().slice(0,180) || undefined, language: String(language || '').trim().slice(0,80) || undefined, explicit: !!explicit, releaseDate: String(releaseDate || '').trim() || undefined, notes: String(notes || '').trim().slice(0,3000) || undefined, status: 'Pending Review', createdAt: now, updatedAt: now };
   db.createVideoSubmission(item);
   void Promise.all([
-    sendAdminVideoSubmissionEmail({ videoTitle: item.videoTitle, artistName: item.artistName, videoType: item.videoType, clientName: user.name, email: user.email, director: item.director, language: item.language, notes: item.notes, createdAt: now }),
-    sendNotification({ recipientEmail: 'midnightamapiano@yahoo.com', recipientName: 'Mid-Ama Promo Administration', subject: `New VEVO Music Video Submission — ${item.videoTitle}`, template: 'submission_received', metadata: { submissionId: item.id, artistName: item.artistName, clientName: user.name, clientEmail: user.email, videoTitle: item.videoTitle, releaseRefNumber: release.refNumber, status: item.status } }),
+    sendAdminVideoSubmissionEmail({ videoTitle: item.videoTitle, artistName: item.artistName, videoType: item.videoType, clientName: user.name, email: user.email, director: item.director, language: item.language, releaseDate: item.releaseDate, notes: item.notes, createdAt: now }),
+    sendNotification({ recipientEmail: 'midnightamapiano@yahoo.com', recipientName: 'Mid-Ama Promo Administration', subject: `New Video Distribution Submission — ${item.videoTitle}`, template: 'submission_received', metadata: { submissionId: item.id, artistName: item.artistName, clientName: user.name, clientEmail: user.email, videoTitle: item.videoTitle, status: item.status } }),
   ]).catch(err => console.error('[VIDEO] Admin notification failed:', err));
-  return res.status(201).json({ message: 'Your music video has been submitted for review.', submission: item });
+  return res.status(201).json({ message: 'Your video has been submitted for review.', submission: item });
 });
 apiRouter.get('/video-submissions', authMiddleware, (req: AuthenticatedRequest, res: Response) => res.json({ submissions: req.user!.role === 'admin' ? db.getVideoSubmissions() : db.getVideoSubmissionsForUser(req.user!.id) }));
 apiRouter.patch('/admin/video-submissions/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
@@ -1878,25 +1798,35 @@ apiRouter.post('/admin/presave', authMiddleware, adminOnly, (req: AuthenticatedR
   const soundblastUrl = String(req.body?.soundblastUrl || '').trim();
   const artworkUrl = String(req.body?.artworkUrl || '').trim();
   const dspLinks = Array.isArray(req.body?.dspLinks) ? req.body.dspLinks : [];
+  const preSaveLinks = Array.isArray(req.body?.preSaveLinks) ? req.body.preSaveLinks : [];
+  const releaseDate = String(req.body?.releaseDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(releaseDate) || Number.isNaN(Date.parse(`${releaseDate}T00:00:00Z`))) return res.status(400).json({ error: 'Enter the scheduled release date (YYYY-MM-DD).' });
   let parsed: URL;
   try { parsed = new URL(soundblastUrl); } catch { return res.status(400).json({ error: 'A valid SoundBlast / Feature.fm or Shift Music Linkfire source URL is required.' }); }
   if (parsed.protocol !== 'https:' || !isAllowedSmartlinkHost(parsed.hostname)) return res.status(400).json({ error: 'Use an HTTPS SoundBlast / Feature.fm or Shift Music Linkfire source URL.' });
   if (!title || title.length > 140) return res.status(400).json({ error: 'Track title is required (maximum 140 characters).' });
   if (artist.length > 180) return res.status(400).json({ error: 'Artist name is too long.' });
-  if (dspLinks.length < 1 || dspLinks.length > 30) return res.status(400).json({ error: 'Add between 1 and 30 DSP destinations.' });
+  if (dspLinks.length < 1 || dspLinks.length > 30) return res.status(400).json({ error: 'Add at least one direct Listen destination for the release date.' });
+  if (preSaveLinks.length < 1 || preSaveLinks.length > 30) return res.status(400).json({ error: 'Add at least one platform pre-save action URL.' });
   const cleanLinks: Array<{label:string;url:string}> = [];
-  for (const item of dspLinks) {
+  const cleanPreSaveLinks: Array<{label:string;url:string}> = [];
+  const clean = (items: any[], destination: Array<{label:string;url:string}>, kind: string) => {
+    for (const item of items) {
     const label = String(item?.label || '').trim().slice(0, 50); const url = String(item?.url || '').trim();
-    let target: URL; try { target = new URL(url); } catch { return res.status(400).json({ error: `Invalid destination URL for ${label || 'DSP'}.` }); }
-    if (!label || !['http:', 'https:'].includes(target.protocol)) return res.status(400).json({ error: 'Each DSP destination needs a label and a valid HTTP(S) URL.' });
-    cleanLinks.push({ label, url: target.toString() });
-  }
+    let target: URL; try { target = new URL(url); } catch { throw new Error(`Invalid destination URL for ${label || 'DSP'}.`); }
+    if (!label || !['http:', 'https:'].includes(target.protocol)) throw new Error(`Each ${kind} needs a label and a valid HTTP(S) URL.`);
+    if (kind === 'Listen destination' && (isAllowedSmartlinkHost(target.hostname) || /linkfire|lnk\.to|ffm\.to/i.test(target.hostname))) throw new Error('Listen destinations must be direct DSP store URLs, not a Linkfire/Feature.fm/SoundBlast landing page.');
+    if (kind === 'pre-save action URL' && target.toString() === parsed.toString()) throw new Error('A pre-save action must be the platform action URL, not the original Linkfire landing page URL.');
+    destination.push({ label, url: target.toString() });
+    }
+  };
+  try { clean(dspLinks, cleanLinks, 'Listen destination'); clean(preSaveLinks, cleanPreSaveLinks, 'pre-save action URL'); } catch (error: any) { return res.status(400).json({ error: error.message }); }
   const baseSlug = safeSlug(String(req.body?.slug || title));
   if (!baseSlug) return res.status(400).json({ error: 'Could not create a URL from that track title.' });
   let slug = baseSlug; let suffix = 2;
   while (db.findPreSavePageBySlug(slug)) slug = `${baseSlug}-${suffix++}`;
   const now = new Date().toISOString();
-  const page: SmartPreSavePage = { id: `presave_${crypto.randomUUID()}`, slug, title, artist, artworkUrl: /^https:\/\//i.test(artworkUrl) ? artworkUrl : undefined, soundblastUrl: parsed.toString(), dspLinks: cleanLinks, active: true, createdAt: now, updatedAt: now };
+  const page: SmartPreSavePage = { id: `presave_${crypto.randomUUID()}`, slug, title, artist, artworkUrl: /^https:\/\//i.test(artworkUrl) ? artworkUrl : undefined, soundblastUrl: parsed.toString(), preSaveLinks: cleanPreSaveLinks, dspLinks: cleanLinks, releaseDate, active: true, createdAt: now, updatedAt: now, listenerStatuses: {} };
   try { db.createPreSavePage(page); res.status(201).json({ message: 'Mid-Ama Promo pre-save page published.', page }); }
   catch (error: any) { res.status(409).json({ error: error?.message || 'Could not create this pre-save page.' }); }
 });
@@ -1907,6 +1837,29 @@ apiRouter.patch('/admin/presave/:id', authMiddleware, adminOnly, (req: Authentic
   if (typeof req.body?.active === 'boolean') updates.active = req.body.active;
   if (typeof req.body?.title === 'string' && req.body.title.trim()) updates.title = req.body.title.trim().slice(0, 140);
   if (typeof req.body?.artist === 'string') updates.artist = req.body.artist.trim().slice(0, 180);
+  if (typeof req.body?.artworkUrl === 'string') updates.artworkUrl = /^https:\/\//i.test(req.body.artworkUrl) ? req.body.artworkUrl : undefined;
+  if (typeof req.body?.releaseDate === 'string') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body.releaseDate) || Number.isNaN(Date.parse(`${req.body.releaseDate}T00:00:00Z`))) return res.status(400).json({ error: 'Enter a valid release date (YYYY-MM-DD).' });
+    updates.releaseDate = req.body.releaseDate;
+  }
+  if (typeof req.body?.soundblastUrl === 'string') {
+    try { const source = new URL(req.body.soundblastUrl); if (source.protocol !== 'https:' || !isAllowedSmartlinkHost(source.hostname)) throw new Error(); updates.soundblastUrl = source.toString(); }
+    catch { return res.status(400).json({ error: 'Enter a valid HTTPS Linkfire / Feature.fm / SoundBlast source URL.' }); }
+  }
+  const validatePageLinks = (items: any, kind: 'pre-save action URL' | 'Listen destination') => {
+    if (!Array.isArray(items) || items.length < 1 || items.length > 30) throw new Error(`Add between 1 and 30 ${kind} links.`);
+    return items.map((item: any) => {
+      const label = String(item?.label || '').trim().slice(0, 50); const url = String(item?.url || '').trim();
+      let target: URL; try { target = new URL(url); } catch { throw new Error(`Invalid URL for ${label || kind}.`); }
+      if (!label || !['http:', 'https:'].includes(target.protocol)) throw new Error(`Each ${kind} needs a label and a valid HTTP(S) URL.`);
+      if (kind === 'Listen destination' && (isAllowedSmartlinkHost(target.hostname) || /linkfire|lnk\.to|ffm\.to/i.test(target.hostname))) throw new Error('Listen destinations must be direct DSP store URLs.');
+      return { label, url: target.toString() };
+    });
+  };
+  try {
+    if (req.body?.preSaveLinks !== undefined) updates.preSaveLinks = validatePageLinks(req.body.preSaveLinks, 'pre-save action URL');
+    if (req.body?.dspLinks !== undefined) updates.dspLinks = validatePageLinks(req.body.dspLinks, 'Listen destination');
+  } catch (error: any) { return res.status(400).json({ error: error.message }); }
   const page = db.updatePreSavePage(existing.id, updates);
   res.json({ page });
 });
@@ -1914,11 +1867,26 @@ apiRouter.delete('/admin/presave/:id', authMiddleware, adminOnly, (req: Authenti
   if (!db.deletePreSavePage(req.params.id)) return res.status(404).json({ error: 'Pre-save page not found.' });
   res.json({ message: 'Pre-save page deleted.' });
 });
+apiRouter.post('/public/presave/:slug/status', (req: Request, res: Response) => {
+  const page = db.findPreSavePageBySlug(String(req.params.slug || ''));
+  if (!page || !page.active) return res.status(404).json({ error: 'This pre-save page is unavailable.' });
+  const visitorId = String(req.body?.visitorId || '').trim();
+  const status = String(req.body?.status || '');
+  if (!/^[a-f0-9-]{20,80}$/i.test(visitorId) || !['started', 'pre-saved'].includes(status)) return res.status(400).json({ error: 'Invalid listener status update.' });
+  const statuses = { ...(page.listenerStatuses || {}) };
+  statuses[visitorId] = status as 'started' | 'pre-saved';
+  db.updatePreSavePage(page.id, { listenerStatuses: statuses, updatedAt: new Date().toISOString() });
+  return res.json({ status, message: status === 'pre-saved' ? 'Your confirmation has been recorded.' : 'Pre-save started.' });
+});
 apiRouter.get('/public/presave/:slug', (req: Request, res: Response) => {
   const page = db.findPreSavePageBySlug(String(req.params.slug || ''));
   if (!page || !page.active) return res.status(404).json({ error: 'This pre-save page is unavailable.' });
-  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
-  res.json({ page });
+  const dateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const today = `${dateParts.find(p => p.type === 'year')?.value}-${dateParts.find(p => p.type === 'month')?.value}-${dateParts.find(p => p.type === 'day')?.value}`;
+  const phase = page.releaseDate && today >= page.releaseDate ? 'smartlink' : 'presave';
+  const { listenerStatuses, ...publicPage } = page;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ page: { ...publicPage, phase, preSavedCount: Object.values(listenerStatuses || {}).filter(v => v === 'pre-saved').length } });
 });
 
 
