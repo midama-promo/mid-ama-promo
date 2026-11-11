@@ -426,30 +426,9 @@ apiRouter.post('/auth/request-otp', async (req: Request, res: Response) => {
   return res.json({ message: 'If this email is registered with Mid-Ama Promo, a one-time login code has been sent. Check your inbox and spam folder.' });
 });
 
-apiRouter.post('/auth/register-artist', async (req: Request, res: Response) => {
-  const email = normalizeAuthEmail(req.body?.email);
-  const realFirstName = typeof req.body?.realFirstName === 'string' ? req.body.realFirstName.trim() : '';
-  const realSurname = typeof req.body?.realSurname === 'string' ? req.body.realSurname.trim() : '';
-  const artistName = typeof req.body?.artistName === 'string' ? req.body.artistName.trim() : '';
-  if (!email || !/^\S+@\S+\.\S+$/.test(email) || !realFirstName || !realSurname || !artistName) {
-    return res.status(400).json({ error: 'Real first name, surname, artist name, and a valid email are required.' });
-  }
-  if (!remotePersistenceConfigured) return res.status(503).json({ error: 'Registration requires the Neon database to be configured.' });
-  if (db.findUserByEmail(email)) return res.status(409).json({ error: 'An account with this email already exists. Please sign in using OTP.' });
-  const id = `usr_client_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-  const created: User = {
-    id, email, name: artistName, artistName, realFirstName, realSurname,
-    role: 'client', passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')),
-    status: 'active', createdAt: new Date().toISOString(), country: 'South Africa',
-  };
-  try {
-    db.createUser(created);
-    await requestEmailOtp(email);
-    return res.status(201).json({ message: 'Registration received. A one-time verification code has been sent to your email.', email });
-  } catch (error: any) {
-    console.error('[AUTH REGISTRATION]', error?.message || error);
-    return res.status(400).json({ error: error?.message || 'Could not complete registration.' });
-  }
+// Public self-registration has been retired. Client accounts are created by Mid-Ama Promo administration.
+apiRouter.post('/auth/register-artist', (_req: Request, res: Response) => {
+  return res.status(410).json({ error: 'Public registration is no longer available. Please contact Mid-Ama Promo administration.' });
 });
 
 apiRouter.post('/auth/verify-otp', async (req: Request, res: Response) => {
@@ -527,7 +506,7 @@ apiRouter.post('/auth/reset-password-direct', (_req: Request, res: Response) => 
 });
 
 apiRouter.post('/auth/register-invite', (_req: Request, res: Response) => {
-  return res.status(410).json({ error: 'Password registration has been retired. Sign in directly using your email one-time code.' });
+  return res.status(410).json({ error: 'Invitation activation is no longer available. Please sign in with your registered email or contact Mid-Ama Promo administration.' });
 });
 
 apiRouter.post('/auth/forgot-password', (_req: Request, res: Response) => {
@@ -1143,294 +1122,9 @@ apiRouter.get('/releases/:id', authMiddleware, (req: AuthenticatedRequest, res: 
   res.json({ release });
 });
 
-apiRouter.post('/releases', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
-  if (user.role === 'client') {
-    const usage = planUsage(user);
-    if (usage.limits.releasesPerMonth !== null && usage.usage.releasesThisMonth >= usage.limits.releasesPerMonth) {
-      return res.status(403).json({ error: `You have reached your ${usage.planName} plan limit of ${usage.limits.releasesPerMonth} releases this month. Upgrade your plan to submit more releases.`, code: 'PLAN_RELEASE_LIMIT', plan: usage });
-    }
-  }
-  const {
-    title,
-    releaseType,
-    primaryArtists,
-    featuredArtists,
-    primaryArtistProfiles,
-    featuredArtistProfiles,
-    artistProfiles,
-    genre,
-    subGenre,
-    language,
-    composers,
-    producers,
-    targetReleaseDate,
-    previouslyReleased,
-    previousReleaseDetails,
-    cLine,
-    pLine,
-    artworkUrl,
-    artworkFilename,
-    storedArtworkFilename,
-    artworkDimensions,
-    tracks,
-    clientNotes,
-  } = req.body;
-
-  // Strict Validation
-  if (typeof title !== 'string' || !title.trim()) {
-    return res.status(400).json({ error: 'Release title is required.' });
-  }
-  if (!releaseType || !['Single', 'EP', 'Album'].includes(releaseType)) {
-    return res.status(400).json({ error: 'Release type must be Single, EP, or Album.' });
-  }
-
-  // Determine effective primary artists
-  const effectivePrimaryArtists: string[] = (
-    Array.isArray(primaryArtists) && primaryArtists.length > 0
-      ? primaryArtists
-      : Array.isArray(primaryArtistProfiles) && primaryArtistProfiles.length > 0
-      ? primaryArtistProfiles.map((p: any) => p.name)
-      : []
-  ).map((a: string) => (typeof a === 'string' ? a.trim() : '')).filter(Boolean);
-
-  if (effectivePrimaryArtists.length === 0) {
-    return res.status(400).json({ error: 'At least one primary artist is required.' });
-  }
-
-  if (!genre) {
-    return res.status(400).json({ error: 'Genre is required.' });
-  }
-  if (!targetReleaseDate) {
-    return res.status(400).json({ error: 'Target release date is required.' });
-  }
-
-  // Strict 14-day release rule: Must be AT LEAST 14 DAYS in the future from today
-  const now = new Date();
-  const subYear = now.getFullYear();
-  const subMonth = now.getMonth();
-  const subDate = now.getDate();
-  const minAllowedDate = new Date(subYear, subMonth, subDate + 14);
-
-  const dateParts = String(targetReleaseDate).split('-').map(Number);
-  const targetDateObj = dateParts.length === 3
-    ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
-    : new Date(targetReleaseDate);
-
-  if (isNaN(targetDateObj.getTime()) || targetDateObj < minAllowedDate) {
-    return res.status(400).json({ error: 'Release date must be at least 14 days from today.' });
-  }
-
-  // Profile URL validation helper
-  const isValidHttpUrl = (str?: string) => {
-    if (!str || !str.trim()) return true;
-    try {
-      const u = new URL(str.trim());
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  };
-
-  const allArtistProfiles = [
-    ...(Array.isArray(primaryArtistProfiles) ? primaryArtistProfiles : []),
-    ...(Array.isArray(featuredArtistProfiles) ? featuredArtistProfiles : []),
-    ...(Array.isArray(artistProfiles) ? artistProfiles : []),
-  ];
-  if (user.role === 'client') {
-    const usage = planUsage(user);
-    if (usage.limits.artists !== null) {
-      const existingArtists = new Set([...(user.artistName || user.name ? [user.artistName || user.name] : []), ...db.getReleases().filter(r => r.userId === user.id).flatMap(releaseArtistNames)].map(n => n.toLocaleLowerCase()));
-      const incomingArtists = [
-        ...effectivePrimaryArtists,
-        ...(Array.isArray(featuredArtists) ? featuredArtists : []),
-        ...allArtistProfiles.map((p: any) => p?.name),
-        ...(Array.isArray(tracks) ? tracks.flatMap((t: any) => [t?.primaryArtist, ...(Array.isArray(t?.featuredArtists) ? t.featuredArtists : []), ...(Array.isArray(t?.artistProfiles) ? t.artistProfiles.map((p: any) => p?.name) : [])]) : []),
-      ].map((n: any) => String(n || '').trim()).filter(Boolean);
-      const combined = new Set([...existingArtists, ...incomingArtists.map(n => n.toLocaleLowerCase())]);
-      if (combined.size > usage.limits.artists) {
-        return res.status(403).json({ error: `Your ${usage.planName} plan allows up to ${usage.limits.artists} unique artist profiles. This release would bring your account to ${combined.size}. Upgrade your plan or remove artists you do not need.`, code: 'PLAN_ARTIST_LIMIT', plan: usage });
-      }
-    }
-  }
-  for (const prof of allArtistProfiles) {
-    if (!prof?.name?.trim()) return res.status(400).json({ error: 'Every artist must have a name.' });
-    if (prof.spotifyProfileUrl && !isValidHttpUrl(prof.spotifyProfileUrl)) {
-      return res.status(400).json({ error: `Spotify Artist Profile for "${prof.name}" must be a valid URL when provided.` });
-    }
-    if (prof.appleMusicProfileUrl && !isValidHttpUrl(prof.appleMusicProfileUrl)) {
-      return res.status(400).json({ error: `Apple Music Artist Profile for "${prof.name}" must be a valid URL when provided.` });
-    }
-  }
-
-  if (!artworkUrl) {
-    return res.status(400).json({ error: 'Cover artwork is required.' });
-  }
-  if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-    return res.status(400).json({ error: 'At least one MP3 audio track master is required.' });
-  }
-
-  // Validate lossless audio files & song artist metadata
-  for (let i = 0; i < tracks.length; i++) {
-    const t = tracks[i];
-    if (!t.title || !t.title.trim()) {
-      return res.status(400).json({ error: 'Every audio track must have a track title.' });
-    }
-    if (!t.filename || !/\.mp3$/i.test(t.filename)) {
-      return res.status(400).json({ error: `Track "${t.title}" must be an MP3 audio file.` });
-    }
-
-    if ((releaseType === 'EP' || releaseType === 'Album')) {
-      if (!t.primaryArtist?.trim()) return res.status(400).json({ error: `Track #${i + 1} requires a Primary Artist.` });
-      if (t.primaryArtistSpotifyUrl && !isValidHttpUrl(t.primaryArtistSpotifyUrl)) return res.status(400).json({ error: `Track #${i + 1} Spotify artist profile link must be a valid URL when provided.` });
-      if (t.primaryArtistAppleMusicUrl && !isValidHttpUrl(t.primaryArtistAppleMusicUrl)) return res.status(400).json({ error: `Track #${i + 1} Apple Music artist profile link must be a valid URL when provided.` });
-    }
-    if (Array.isArray(t.artistProfiles)) {
-      for (const ap of t.artistProfiles) {
-        if (!ap?.name?.trim()) return res.status(400).json({ error: `Track #${i + 1} contains an artist without a name.` });
-        if (ap.spotifyProfileUrl && !isValidHttpUrl(ap.spotifyProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Spotify profile link must be a valid URL when provided.` });
-        if (ap.appleMusicProfileUrl && !isValidHttpUrl(ap.appleMusicProfileUrl)) return res.status(400).json({ error: `Track #${i + 1} artist "${ap.name}" Apple Music profile link must be a valid URL when provided.` });
-      }
-    }
-
-    // For EP/Episode and Album releases, require artist information for every song
-    if (releaseType === 'EP' || releaseType === 'Album') {
-      const hasSongArtist = !!t.primaryArtist?.trim();
-      if (!hasSongArtist) {
-        return res.status(400).json({
-          error: `Track #${i + 1} (${t.title || 'Untitled'}) requires a Primary Artist for ${releaseType === 'EP' ? 'Episode/EP' : 'Album'} releases.`
-        });
-      }
-    }
-  }
-
-  const refNumber = generateRefNumber();
-  const nowIso = new Date().toISOString();
-
-  const newRelease: Release = {
-    id: `rel_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    userId: user.id,
-    userEmail: user.email,
-    artistLabelName: user.name,
-    refNumber,
-    title: title.trim(),
-    releaseType,
-    primaryArtists: effectivePrimaryArtists,
-    featuredArtists: Array.isArray(featuredArtists)
-      ? featuredArtists.map((a: unknown) => typeof a === 'string' ? a.trim() : '').filter(Boolean)
-      : Array.isArray(featuredArtistProfiles)
-      ? featuredArtistProfiles.map((p: any) => p.name).filter(Boolean)
-      : [],
-    primaryArtistProfiles: Array.isArray(primaryArtistProfiles) ? primaryArtistProfiles : undefined,
-    featuredArtistProfiles: Array.isArray(featuredArtistProfiles) ? featuredArtistProfiles : undefined,
-    artistProfiles: Array.isArray(artistProfiles) ? artistProfiles : undefined,
-    genre,
-    subGenre: subGenre || undefined,
-    language: language || 'Zulu / English',
-    composers: Array.isArray(composers) ? composers.map((c: unknown) => typeof c === 'string' ? c.trim() : '').filter(Boolean) : [],
-    producers: Array.isArray(producers) ? producers.map((p: unknown) => typeof p === 'string' ? p.trim() : '').filter(Boolean) : [],
-    targetReleaseDate,
-    previouslyReleased: !!previouslyReleased,
-    previousReleaseDetails: previousReleaseDetails || undefined,
-    cLine: `${new Date().getFullYear()} Mid-Ama Promo`,
-    pLine: `${new Date().getFullYear()} Mid-Ama Promo`,
-    artworkUrl,
-    artworkFilename: artworkFilename || 'cover.jpg',
-    storedArtworkFilename,
-    artworkDimensions: artworkDimensions || { width: 1400, height: 1400 },
-    tracks: tracks.map((t: any, index: number) => ({
-      id: `trk_${Date.now()}_${index + 1}`,
-      trackNumber: t.trackNumber || index + 1,
-      title: t.title.trim(),
-      version: t.version || 'Original Mix',
-      filename: t.filename,
-      storedFilename: t.storedFilename,
-      fileUrl: t.fileUrl,
-      fileSize: t.fileSize || 0,
-      duration: t.duration || 0,
-      isrc: t.isrc || '',
-      explicit: !!t.explicit,
-      primaryArtist: t.primaryArtist?.trim() || (releaseType === 'Single' ? (effectivePrimaryArtists[0] || user.name) : ''),
-      primaryArtistSpotifyUrl: t.primaryArtistSpotifyUrl?.trim() || undefined,
-      primaryArtistAppleMusicUrl: t.primaryArtistAppleMusicUrl?.trim() || undefined,
-      featuredArtists: Array.isArray(t.featuredArtists) ? t.featuredArtists.filter(Boolean) : [],
-      artistProfiles: Array.isArray(t.artistProfiles) ? t.artistProfiles : undefined,
-    })),
-    clientNotes: clientNotes || '',
-    status: 'Pending Review',
-    allowPublicShare: true,
-    submittedAt: nowIso,
-    updatedAt: nowIso,
-    statusHistory: [
-      {
-        status: 'Pending Review',
-        note: 'Release submitted by client. Waiting for Administrator review.',
-        timestamp: nowIso,
-        updatedBy: user.name,
-      }
-    ]
-  };
-
-  const saved = db.createRelease(newRelease);
-
-  // Save artists from this new submission to this client's private Neon-backed account library.
-  // Merge by case-insensitive name and preserve previously supplied profile links / creation requests.
-  const submissionArtists: any[] = [
-    ...(newRelease.primaryArtistProfiles || []),
-    ...(newRelease.featuredArtistProfiles || []),
-    ...(newRelease.artistProfiles || []),
-    ...newRelease.tracks.flatMap(track => track.artistProfiles || []),
-    ...newRelease.tracks.flatMap(track => [
-      ...(track.primaryArtist ? [{ name: track.primaryArtist, role: 'primary' }] : []),
-      ...(track.featuredArtists || []).map(name => ({ name, role: 'featured' })),
-    ]),
-  ];
-  const artistMap = new Map<string, any>();
-  for (const artist of [...(user.artistLibrary || []), ...submissionArtists]) {
-    const name = String(artist?.name || '').trim();
-    if (!name) continue;
-    const key = name.toLocaleLowerCase();
-    const previous = artistMap.get(key) || {};
-    artistMap.set(key, {
-      ...previous,
-      ...artist,
-      id: previous.id || artist.id || `artist_${crypto.randomUUID()}`,
-      name: previous.name || name,
-      spotifyProfileUrl: artist.spotifyProfileCreateRequested ? undefined : (artist.spotifyProfileUrl || previous.spotifyProfileUrl || undefined),
-      appleMusicProfileUrl: artist.appleMusicProfileCreateRequested ? undefined : (artist.appleMusicProfileUrl || previous.appleMusicProfileUrl || undefined),
-      spotifyProfileCreateRequested: artist.spotifyProfileCreateRequested ? true : artist.spotifyProfileUrl ? false : !!previous.spotifyProfileCreateRequested,
-      appleMusicProfileCreateRequested: artist.appleMusicProfileCreateRequested ? true : artist.appleMusicProfileUrl ? false : !!previous.appleMusicProfileCreateRequested,
-    });
-  }
-  db.updateUser(user.id, { artistLibrary: Array.from(artistMap.values()) });
-
-  // Send complete submission details to midnightamapiano@yahoo.com
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  try {
-    await sendAdminReleaseEmail(saved, baseUrl);
-  } catch (err) {
-    console.error('Error sending admin notification email:', err);
-    // Do not fail submission if mail delivery throws
-  }
-
-  // Also record client confirmation notification
-  await sendNotification({
-    recipientEmail: user.email,
-    recipientName: user.name,
-    subject: `Submission Received: ${saved.title} [${saved.refNumber}] - Mid-Ama Promo™`,
-    template: 'submission_received',
-    metadata: {
-      refNumber: saved.refNumber,
-      title: saved.title,
-      trackCount: saved.tracks.length,
-      targetDate: saved.targetReleaseDate,
-    }
-  });
-
-  res.status(201).json({
-    message: 'Release submitted successfully! Reference number: ' + saved.refNumber,
-    release: saved,
-  });
+// Legacy release submission is retired; new distribution is handled on the new artist portal.
+apiRouter.post('/releases', authMiddleware, activeClientOnly, (_req: AuthenticatedRequest, res: Response) => {
+  return res.status(410).json({ error: 'Release submissions have moved to https://user.midamapromo.co.za/.' });
 });
 
 // Admin workflow milestones that are distinct from approval and final distribution completion.
@@ -1711,54 +1405,18 @@ apiRouter.patch('/admin/video-submissions/:id', authMiddleware, adminOnly, (req:
 // VEVO CHANNEL APPLICATIONS
 // Stored as an additive field in the existing application state; no existing records are replaced.
 // ----------------------------------------------------
-apiRouter.post('/vevo/applications', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
-  if (user.role !== 'client') return res.status(403).json({ error: 'Only client accounts can apply for a VEVO channel.' });
-  const artistName = String(req.body?.artistName || user.artistName || user.name || '').trim().slice(0, 180);
-  const notes = String(req.body?.notes || '').trim().slice(0, 2000);
-  if (!artistName) return res.status(400).json({ error: 'Artist name is required.' });
-  const pending = db.getVevoApplicationsForUser(user.id).find(a => a.status === 'Pending');
-  if (pending) return res.status(409).json({ error: 'You already have a pending VEVO channel application.', application: pending });
-  const now = new Date().toISOString();
-  const application: VevoApplication = {
-    id: `vevo_${crypto.randomUUID()}`, userId: user.id, clientName: user.name,
-    artistName, email: user.email, notes, status: 'Pending', createdAt: now, updatedAt: now,
-  };
-  db.createVevoApplication(application);
-  void Promise.all([
-    sendAdminVevoApplicationEmail({ artistName, clientName: user.name, email: user.email, notes, createdAt: now }),
-    sendNotification({
-      recipientEmail: 'midnightamapiano@yahoo.com',
-      recipientName: 'Mid-Ama Promo Administration',
-      subject: `New VEVO Channel Application — ${artistName}`,
-      template: 'vevo_application',
-      metadata: { applicationId: application.id, artistName, clientName: user.name, clientEmail: user.email, notes, status: 'Pending', submittedAt: now },
-    }),
-  ]).catch(error => console.error('[VEVO] Admin notification failed:', error));
-  return res.status(201).json({ message: 'Your VEVO channel application has been submitted.', application });
+// VEVO channel applications have been retired from the legacy portal.
+apiRouter.post('/vevo/applications', authMiddleware, activeClientOnly, (_req: AuthenticatedRequest, res: Response) => {
+  return res.status(410).json({ error: 'VEVO applications are no longer accepted through this portal.' });
 });
 apiRouter.get('/vevo/applications', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
   if (req.user!.role === 'admin') return res.json({ applications: db.getVevoApplications() });
   return res.json({ applications: db.getVevoApplicationsForUser(req.user!.id) });
 });
-apiRouter.patch('/admin/vevo/applications/:id', authMiddleware, adminOnly, (req: AuthenticatedRequest, res: Response) => {
-  const status = req.body?.status;
-  if (!['Approved', 'Rejected'].includes(status)) return res.status(400).json({ error: 'Choose Approved or Rejected.' });
-  const existing = db.getVevoApplications().find(a => a.id === req.params.id);
-  if (!existing) return res.status(404).json({ error: 'VEVO application not found.' });
-  const updated = db.updateVevoApplication(existing.id, {
-    status, adminNote: String(req.body?.adminNote || '').trim().slice(0, 1000) || undefined,
-    updatedAt: new Date().toISOString(),
-  });
-  if (updated) void sendNotification({
-    recipientEmail: existing.email, recipientName: existing.clientName,
-    subject: `VEVO Channel Application ${status} — Mid-Ama Promo`,
-    template: 'vevo_application_status',
-    metadata: { artistName: existing.artistName, status, adminNote: updated.adminNote || '' },
-  }).catch(error => console.error('[VEVO] Client status email failed:', error));
-  return res.json({ message: `Application marked ${status.toLowerCase()}.`, application: updated });
+// Legacy VEVO application decisions are disabled; existing application records remain preserved.
+apiRouter.patch('/admin/vevo/applications/:id', authMiddleware, adminOnly, (_req: AuthenticatedRequest, res: Response) => {
+  return res.status(410).json({ error: 'VEVO application management is no longer available in this portal.' });
 });
-
 apiRouter.post('/admin/presave/preview', authMiddleware, adminOnly, async (req: AuthenticatedRequest, res: Response) => {
   const rawUrl = String(req.body?.soundblastUrl || '').trim();
   let parsed: URL;
@@ -2027,101 +1685,8 @@ apiRouter.post('/releases/:id/request-corrections', authMiddleware, adminOnly, a
 // Client resubmission for a release explicitly returned for corrections.
 // This updates the existing release record (same ID/reference) and never creates
 // or deletes stored assets. Unchanged asset URLs/filenames are preserved.
-apiRouter.post('/releases/:id/corrections-resubmit', authMiddleware, activeClientOnly, async (req: AuthenticatedRequest, res: Response) => {
-  const existing = db.findReleaseById(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Release not found.' });
-  if (req.user!.role !== 'client' || existing.userId !== req.user!.id) {
-    return res.status(403).json({ error: 'You are not authorized to edit this release.' });
-  }
-  if (existing.status !== 'Corrections Required') {
-    return res.status(409).json({ error: 'This release is no longer awaiting corrections. Refresh your dashboard and try again.' });
-  }
-
-  const body = req.body || {};
-  const requiredText = ['title', 'genre', 'targetReleaseDate'];
-  for (const field of requiredText) {
-    if (typeof body[field] !== 'string' || !body[field].trim()) {
-      return res.status(400).json({ error: `Please provide a valid ${field}.` });
-    }
-  }
-  const incomingTracks = Array.isArray(body.tracks) ? body.tracks : existing.tracks;
-  if (!incomingTracks.length || incomingTracks.some((track: any) =>
-    !track || typeof track.title !== 'string' || !track.title.trim() ||
-    typeof (track.fileUrl || '') !== 'string' || !(track.fileUrl || '').trim()
-  )) {
-    return res.status(400).json({ error: 'Every track must have a title and an uploaded audio file. Existing audio files are retained when not replaced.' });
-  }
-  const artworkUrl = typeof body.artworkUrl === 'string' && body.artworkUrl.trim()
-    ? body.artworkUrl.trim() : existing.artworkUrl;
-  if (!artworkUrl) return res.status(400).json({ error: 'Release artwork is required.' });
-
-  const editableFields = [
-    'title', 'releaseType', 'primaryArtists', 'featuredArtists', 'primaryArtistProfiles',
-    'featuredArtistProfiles', 'artistProfiles', 'genre', 'subGenre', 'language',
-    'composers', 'producers', 'targetReleaseDate', 'previouslyReleased',
-    'previousReleaseDetails', 'cLine', 'pLine', 'clientNotes',
-    'artworkUrl', 'artworkFilename', 'storedArtworkFilename', 'artworkDimensions', 'tracks',
-  ];
-  const changes: Record<string, any> = {};
-  for (const field of editableFields) {
-    if (Object.prototype.hasOwnProperty.call(body, field)) changes[field] = body[field];
-  }
-  // Asset fields are additive/replacement-only: never blank a stored asset because
-  // a client omitted a field from an older or partial form submission.
-  changes.artworkUrl = artworkUrl;
-  changes.artworkFilename = body.artworkFilename || existing.artworkFilename;
-  changes.storedArtworkFilename = body.storedArtworkFilename || existing.storedArtworkFilename;
-  changes.artworkDimensions = body.artworkDimensions || existing.artworkDimensions;
-  changes.tracks = incomingTracks.map((track: any, index: number) => {
-    const previous = existing.tracks.find((item: any) => item.id === track.id);
-    return {
-      ...(previous || {}),
-      ...track,
-      id: track.id || previous?.id || `trk_${Date.now()}_${index + 1}`,
-      trackNumber: Number(track.trackNumber) || index + 1,
-      filename: track.filename || previous?.filename || `track_${index + 1}.mp3`,
-      storedFilename: track.storedFilename || previous?.storedFilename,
-      fileUrl: track.fileUrl || previous?.fileUrl,
-      fileSize: Number(track.fileSize) || previous?.fileSize || 0,
-    };
-  });
-
-  const now = new Date().toISOString();
-  const updatedHistory = [
-    ...(existing.statusHistory || []),
-    {
-      status: 'Pending Review' as ReleaseStatus,
-      note: `Corrected release resubmitted by client. Previous administrator feedback: ${existing.adminNotes || 'See prior status history.'}`,
-      timestamp: now,
-      updatedBy: req.user!.name,
-    },
-  ];
-  const updated = db.updateRelease(existing.id, {
-    ...changes,
-    status: 'Pending Review',
-    updatedAt: now,
-    statusHistory: updatedHistory,
-  });
-  if (!updated) return res.status(500).json({ error: 'The corrected release could not be saved. No existing release was deleted.' });
-
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  try {
-    await sendAdminReleaseEmail(updated, baseUrl, true);
-  } catch (error) {
-    console.error('[RELEASE RESUBMISSION] Admin email notification failed:', error);
-  }
-  void sendNotification({
-    recipientEmail: updated.userEmail,
-    recipientName: updated.artistLabelName,
-    subject: `Corrected Release Resubmitted: ${updated.title} (${updated.refNumber})`,
-    template: 'submission_received',
-    metadata: { refNumber: updated.refNumber, title: updated.title, status: 'Pending Review', resubmitted: true },
-  }).catch(error => console.error('[RELEASE RESUBMISSION] Client confirmation notification failed:', error));
-
-  return res.json({
-    message: `${updated.refNumber} has been resubmitted and is Pending Review.`,
-    release: updated,
-  });
+apiRouter.post('/releases/:id/corrections-resubmit', authMiddleware, activeClientOnly, (_req: AuthenticatedRequest, res: Response) => {
+  return res.status(410).json({ error: 'Legacy release editing is no longer available. Please use the new artist portal for new distribution.' });
 });
 
 // ----------------------------------------------------

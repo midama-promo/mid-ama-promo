@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { Logo } from '../common/Logo';
 import { useAuth } from '../../context/AuthContext';
-import { User, UserPlus, LogIn, UploadCloud, Menu, X, Shield, Bell, Disc3 } from 'lucide-react';
+import { LogIn, Menu, X, Shield, Bell, Disc3 } from 'lucide-react';
 
 interface NavbarProps {
   onOpenSignIn: () => void;
-  onOpenRegister?: () => void;
-  onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onGoToDashboard: () => void;
   onOpenNotifications?: () => void;
@@ -14,8 +12,6 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenSignIn,
-  onOpenRegister,
-  onOpenGetStarted,
   onOpenContact,
   onGoToDashboard,
   onOpenNotifications,
@@ -139,14 +135,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <LogIn className="w-4 h-4 text-neutral-400" />
                   <span>Sign In</span>
                 </button>
-
-                <button
-                  onClick={onOpenRegister || onOpenGetStarted}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all hover:shadow-red-900/20 active:scale-95"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  <span>Sign Up</span>
-                </button>
               </>
             )}
           </div>
@@ -237,16 +225,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <LogIn className="w-4 h-4" />
                   Sign In
-                </button>
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    (onOpenRegister || onOpenGetStarted)();
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold shadow"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Sign Up
                 </button>
               </>
             )}

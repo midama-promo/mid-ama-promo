@@ -88,12 +88,6 @@ class ApiService {
     });
   }
 
-  async registerArtist(payload: { realFirstName: string; realSurname: string; artistName: string; email: string }): Promise<{ message: string; email: string }> {
-    return this.request<{ message: string; email: string }>('/api/auth/register-artist', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
 
   async verifyLoginOtp(email: string, code?: string, accessToken?: string): Promise<{ token: string; user: User }> {
     const data = await this.request<{ token: string; user: User }>('/api/auth/verify-otp', {
@@ -136,20 +130,6 @@ class ApiService {
     this.setToken(null);
   }
 
-  async registerInvite(data: {
-    token: string;
-    password: string;
-    confirmPassword: string;
-    name?: string;
-    phone?: string;
-  }): Promise<{ message: string; token: string; user: User }> {
-    const res = await this.request<{ message: string; token: string; user: User }>('/api/auth/register-invite', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    this.setToken(res.token);
-    return res;
-  }
 
   async forgotPassword(email: string): Promise<{ message: string; demoToken?: string }> {
     return this.request<{ message: string; demoToken?: string }>('/api/auth/forgot-password', {
@@ -248,12 +228,8 @@ class ApiService {
   }
 
   async getVevoApplications(): Promise<{ applications: any[] }> { return this.request('/api/vevo/applications'); }
-  async submitVevoApplication(payload: { artistName: string; notes?: string }): Promise<{ message: string; application: any }> {
-    return this.request('/api/vevo/applications', { method: 'POST', body: JSON.stringify(payload) });
-  }
-  async updateVevoApplication(id: string, payload: { status: 'Approved' | 'Rejected'; adminNote?: string }): Promise<{ message: string; application: any }> {
-    return this.request(`/api/admin/vevo/applications/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
-  }
+
+
   async uploadVideo(file: File): Promise<{ fileUrl: string; filename: string; storedFilename: string; fileSize: number }> {
     const formData = new FormData(); formData.append('video', file);
     return this.request('/api/upload/video', { method: 'POST', body: formData });

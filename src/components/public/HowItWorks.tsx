@@ -1,11 +1,7 @@
 import React from 'react';
-import { MailCheck, UploadCloud, ShieldCheck, ArrowRight } from 'lucide-react';
+import { MailCheck, ExternalLink, ShieldCheck } from 'lucide-react';
 
-interface HowItWorksProps {
-  onOpenGetStarted: () => void;
-}
-
-export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
+export const HowItWorks: React.FC = () => {
   const steps = [
     {
       number: '01',
@@ -13,26 +9,26 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
       title: 'Email Registration',
       subtitle: 'Verified Artist Onboarding',
       description:
-        'Independent artists receive a direct invitation or register an artist profile. Email OTP verification provides secure, passwordless access to releases and catalogue tools.',
+        'Artist accounts are created by Mid-Ama Promo administration. Artists use their registered email to securely sign in to the new distribution portal.',
       highlight: 'Private Client Account',
     },
     {
       number: '02',
-      icon: UploadCloud,
-      title: 'Upload & Submit',
-      subtitle: 'Strict Industry Standards',
+      icon: ExternalLink,
+      title: 'New Distribution Portal',
+      subtitle: 'All New Releases',
       description:
-        'Submit full metadata, primary and featured artists, high-definition square artwork (3000×3000 to 4000×4000px), and MP3 audio masters.',
-      highlight: 'Real-time Validation Checks',
+        'Use our new Artist Distribution Portal for all new music distribution submissions and release management.',
+      highlight: 'New Artist Portal',
     },
     {
       number: '03',
       icon: ShieldCheck,
-      title: 'Review & Distribution',
-      subtitle: 'Human Quality Control',
+      title: 'Existing Catalogue Preserved',
+      subtitle: 'Your Music Remains Available',
       description:
-        'Mid-Ama Promo carefully reviews audio masters, artwork fidelity, and copyright metadata. Track live updates in your dashboard.',
-      highlight: 'Worldwide Distribution',
+        'Your previously distributed releases remain under Mid-Ama Promo as your record label. This website transition does not remove or affect your existing catalogue.',
+      highlight: 'No Catalogue Removal',
     },
   ];
 
@@ -94,15 +90,16 @@ export const HowItWorks: React.FC<HowItWorksProps> = ({ onOpenGetStarted }) => {
           })}
         </div>
 
-        {/* Action Prompt */}
+        {/* New portal action */}
         <div className="mt-12 text-center">
-          <button
-            onClick={onOpenGetStarted}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white rounded-xl text-sm font-semibold transition-all hover:border-red-600/50"
+          <a
+            href="https://user.midamapromo.co.za/"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-7 py-3.5 text-sm font-bold text-white shadow-lg shadow-red-950/30 transition-all hover:-translate-y-0.5 hover:bg-red-500"
           >
-            <span>Ready to submit your release?</span>
-            <ArrowRight className="w-4 h-4 text-red-500" />
-          </button>
+            Open New Artist Portal <ExternalLink className="h-4 w-4" />
+          </a>
         </div>
 
       </div>

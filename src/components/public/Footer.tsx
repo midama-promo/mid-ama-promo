@@ -1,21 +1,16 @@
 import React from 'react';
 import { Logo } from '../common/Logo';
-import { UserPlus } from 'lucide-react';
 import { Mail, Shield, Lock, ArrowUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface FooterProps {
   onOpenSignIn: () => void;
-  onOpenRegister?: () => void;
-  onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onGoToDashboard: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onOpenSignIn,
-  onOpenRegister,
-  onOpenGetStarted,
   onOpenContact,
   onGoToDashboard,
 }) => {
@@ -105,11 +100,10 @@ export const Footer: React.FC<FooterProps> = ({
                       <span>Sign In</span>
                     </button>
                   </li>
-                  {onOpenRegister && <li><button onClick={onOpenRegister} className="hover:text-white transition-colors">Sign Up</button></li>}
                   <li>
-                    <button onClick={onOpenRegister || onOpenGetStarted} className="text-red-400 hover:text-red-300 font-semibold transition-colors">
-                      Sign Up
-                    </button>
+                    <a href="https://user.midamapromo.co.za/" target="_blank" rel="noreferrer" className="text-red-400 hover:text-red-300 font-semibold transition-colors">
+                      New Artist Portal
+                    </a>
                   </li>
                 </>
               )}

@@ -1,23 +1,17 @@
 import React, { useState } from 'react';
-import { UserPlus, LogIn, Mail, ArrowRight, CheckCircle2, Search, Shield, Music, Disc } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { LogIn, Mail, ArrowRight, Search, Shield, Music, Disc } from 'lucide-react';
 
 interface HeroProps {
   onOpenSignIn: () => void;
-  onOpenRegister?: () => void;
-  onOpenGetStarted: () => void;
   onOpenContact: () => void;
   onLookupRef: (ref: string) => void;
 }
 
 export const Hero: React.FC<HeroProps> = ({
   onOpenSignIn,
-  onOpenRegister,
-  onOpenGetStarted,
   onOpenContact,
   onLookupRef,
 }) => {
-  const { user } = useAuth();
   const [refInput, setRefInput] = useState('');
 
   const handleRefSubmit = (e: React.FormEvent) => {
@@ -55,19 +49,20 @@ export const Hero: React.FC<HeroProps> = ({
           </h1>
 
           <p className="text-lg sm:text-xl text-neutral-300 max-w-2xl mx-auto font-normal leading-relaxed">
-            Independent artists can securely submit music master files, square cover artwork, and complete release metadata directly to the Mid-Ama Promo management desk.
+            Mid-Ama Promo continues to manage your existing released catalogue as your record label. All new music distribution is now handled through our new Artist Portal.
           </p>
 
           {/* Primary Action Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
-            <button
-              onClick={onOpenRegister || onOpenGetStarted}
+            <a
+              href="https://user.midamapromo.co.za/"
+              target="_blank"
+              rel="noreferrer"
               className="flex items-center gap-2.5 px-7 py-3.5 bg-red-600 hover:bg-red-500 active:scale-98 text-white font-bold text-sm sm:text-base rounded-xl shadow-lg shadow-red-600/20 transition-all"
             >
-              <UserPlus className="w-5 h-5" />
-              <span>Sign Up</span>
+              <span>Go to New Artist Portal</span>
               <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
+            </a>
 
             <button
               onClick={onOpenSignIn}

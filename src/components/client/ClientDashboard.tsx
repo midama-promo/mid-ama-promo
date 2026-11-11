@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { VevoApplications } from '../common/VevoApplications';
 import { VideoSubmissions } from '../common/VideoSubmissions';
 import {
-  UploadCloud,
   LogOut,
   Search,
   Filter,
@@ -33,26 +31,19 @@ import { api } from '../../services/api';
 import { Logo } from '../common/Logo';
 import { RoyaltyWithdrawalModal } from './RoyaltyWithdrawalModal';
 import { PlanManagement } from './PlanManagement';
-import { ServiceNotice } from '../common/ServiceNotice';
 
 interface ClientDashboardProps {
-  onOpenUpload: () => void;
-  onEditRelease: (release: Release) => void;
   onSelectRelease: (release: Release) => void;
   onOpenSharePage: (refNumber: string) => void;
   onOpenNotifications: () => void;
   onGoHome: () => void;
-  newlyCreatedRelease?: Release | null;
 }
 
 export const ClientDashboard: React.FC<ClientDashboardProps> = ({
-  onOpenUpload,
-  onEditRelease,
   onSelectRelease,
   onOpenSharePage,
   onOpenNotifications,
   onGoHome,
-  newlyCreatedRelease,
 }) => {
   const { user, logout, isImpersonating, exitClientAccount } = useAuth();
   const isAccountRestricted = user?.status === 'disabled';
@@ -158,19 +149,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
     return () => window.removeEventListener('midama:release-status-updated', handleStatusUpdated);
   }, []);
 
-  // When a release is newly submitted, immediately show it without requiring a browser refresh
-  useEffect(() => {
-    if (newlyCreatedRelease) {
-      setReleases((prev) => {
-        const filtered = prev.filter(
-          (r) => r.id !== newlyCreatedRelease.id && r.refNumber !== newlyCreatedRelease.refNumber
-        );
-        return [newlyCreatedRelease, ...filtered];
-      });
-      fetchReleases(false);
-    }
-  }, [newlyCreatedRelease]);
-
   const handleCopyLink = (refNumber: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const url = `${window.location.origin}?ref=${refNumber}`;
@@ -217,7 +195,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
 
   return (
     <div className={`min-h-screen text-neutral-100 pb-20 transition-colors duration-500 ${activePlan === 'starter' ? 'bg-[radial-gradient(ellipse_at_top,_rgba(244,63,94,0.13),_transparent_45%),#08080d]' : 'bg-neutral-950'}`} data-plan-theme={activePlan}>
-      <VevoApplications />
       <VideoSubmissions />
       
       {/* Admin Impersonation Notice Bar */}
@@ -271,17 +248,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
               <Bell className="w-5 h-5" />
             </button>
 
-            {!isAccountRestricted && (
-              <button
-                onClick={onOpenUpload}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-bold rounded-xl transition-all shadow-md shadow-red-950 active:scale-95 cursor-pointer"
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span className="hidden sm:inline">Submit New Release</span>
-                <span className="sm:hidden">Submit</span>
-              </button>
-            )}
-
             <button
               onClick={logout}
               className="p-2 text-neutral-400 hover:text-red-400 hover:bg-neutral-900 rounded-xl transition-colors cursor-pointer"
@@ -293,8 +259,21 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
         </div>
       </header>
 
-      {/* Temporary service interruption notice visible to every client */}
-      <ServiceNotice className="pt-5" />
+      {/* New distributor portal notice visible to every client */}
+      <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-5" aria-label="New distributor portal notice">
+        <div className="relative overflow-hidden rounded-2xl border border-red-500/40 bg-gradient-to-r from-red-950/70 via-neutral-900 to-neutral-950 p-5 sm:p-6 shadow-xl shadow-red-950/20">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-black uppercase tracking-[.24em] text-red-300">Important distribution update</p>
+              <h2 className="mt-1 text-lg sm:text-xl font-extrabold text-white">Please use our new Artist Distribution Portal for all new releases.</h2>
+              <p className="mt-2 text-xs sm:text-sm leading-relaxed text-neutral-300">New music distribution must now be handled through our new website. Your existing catalogue will remain with Mid-Ama Promo exactly as it is. Your previously released music will not be removed, deleted, or affected by this change.</p>
+            </div>
+            <a href="https://user.midamapromo.co.za/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-xs sm:text-sm font-extrabold text-white transition-colors hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-300">
+              Open New Website <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </section>
 
       {isPaidDashboard && !isAccountRestricted && (
         <div className={`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-5`}>
@@ -340,20 +319,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
             </h1>
 
             <p className="text-xs sm:text-sm text-neutral-400 max-w-xl">
-              This is your private release management portal. Submit your music master files, square cover art, and metadata directly for review by Mid-Ama Promo administration.
+              This dashboard provides access to your existing Mid-Ama Promo catalogue and account information. Use our new Artist Distribution Portal for all new music distribution.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            {!isAccountRestricted && (
-              <button
-                onClick={onOpenUpload}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-950 flex items-center gap-2 transition-colors cursor-pointer active:scale-95"
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>Submit New Release</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -551,18 +521,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                 No releases submitted yet.
               </h3>
               <p className="text-xs text-neutral-400">
-                You have not submitted any music releases yet. When you are ready, click the button below to upload your master audio, square cover artwork, and release metadata.
+                No previous releases are recorded in this portal. Use the new Artist Distribution Portal for all new distribution submissions.
               </p>
             </div>
-            {!isAccountRestricted && (
-              <button
-                onClick={onOpenUpload}
-                className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-colors inline-flex items-center gap-2 shadow-md shadow-red-950"
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>Submit New Release</span>
-              </button>
-            )}
           </div>
         ) : filteredReleases.length === 0 ? (
           <div className="py-16 bg-neutral-900/20 border border-neutral-800 rounded-2xl text-center space-y-2 p-6">
@@ -697,15 +658,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({
                   </span>
 
                   <div className="flex items-center gap-2">
-                    {rel.status === 'Corrections Required' && !isAccountRestricted && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); onEditRelease(rel); }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold transition-colors"
-                      >
-                        <AlertTriangle className="w-3.5 h-3.5" /> Edit &amp; Resubmit
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={(e) => handleCopyLink(rel.refNumber, e)}

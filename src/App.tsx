@@ -17,11 +17,9 @@ import { ContactSection } from './components/public/ContactSection';
 import { Policies } from './components/public/Policies';
 import { Footer } from './components/public/Footer';
 import { ReleasesShowcase } from './components/public/ReleasesShowcase';
-import { ServiceNotice } from './components/common/ServiceNotice';
 
 // Modals & Dashboards
 import { AuthModal, AuthTabMode } from './components/auth/AuthModal';
-import { UploadReleaseModal } from './components/client/UploadReleaseModal';
 import { ReleaseDetailModal } from './components/client/ReleaseDetailModal';
 import { ClientDashboard } from './components/client/ClientDashboard';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -79,11 +77,8 @@ function MainContent() {
   // Modals state
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<AuthTabMode>('signin');
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [editingRelease, setEditingRelease] = useState<Release | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [latestSubmittedRelease, setLatestSubmittedRelease] = useState<Release | null>(null);
 
   const openAuth = (tab: AuthTabMode = 'signin') => {
     setAuthTab(tab);
@@ -204,23 +199,10 @@ function MainContent() {
     return (
       <>
         <ClientDashboard
-          onOpenUpload={() => { setEditingRelease(null); setIsUploadOpen(true); }}
-          onEditRelease={(release) => { setEditingRelease(release); setIsUploadOpen(true); }}
           onSelectRelease={(rel) => setSelectedRelease(rel)}
           onOpenSharePage={handleOpenShare}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onGoHome={() => setCurrentView('public')}
-          newlyCreatedRelease={latestSubmittedRelease}
-        />
-
-        {/* Upload Release Modal Wizard */}
-        <UploadReleaseModal
-          isOpen={isUploadOpen}
-          editingRelease={editingRelease}
-          onClose={() => { setIsUploadOpen(false); setEditingRelease(null); }}
-          onSuccess={(newRel) => {
-            setLatestSubmittedRelease(newRel);
-          }}
         />
 
         {/* Release Detail View */}
@@ -248,15 +230,6 @@ function MainContent() {
         {/* Navigation bar */}
         <Navbar
           onOpenSignIn={() => openAuth('signin')}
-          onOpenRegister={() => openAuth('register')}
-          onOpenGetStarted={() => {
-            if (user) {
-              setCurrentView(user.role === 'admin' ? 'admin' : 'client');
-              setIsUploadOpen(true);
-            } else {
-              openAuth('signin');
-            }
-          }}
           onOpenContact={() => {
             const el = document.getElementById('contact');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -265,28 +238,26 @@ function MainContent() {
           onOpenNotifications={() => setIsNotificationsOpen(true)}
         />
 
-        {/* Temporary service interruption notice */}
-        <ServiceNotice className="pt-4" />
-
-        <div className="mx-auto mt-5 max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-1 rounded-2xl border border-red-500/30 bg-gradient-to-r from-red-950/80 via-neutral-900 to-neutral-900 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="text-[10px] font-extrabold uppercase tracking-[.25em] text-red-300">New service</p><p className="mt-1 text-lg font-black tracking-tight text-white sm:text-xl">VIDEO DISTRIBUTION NOW AVAILABLE</p><p className="mt-1 text-xs text-neutral-300">Bring your music videos to VEVO with Mid-Ama Promo.</p></div>
-            <span className="mt-2 inline-flex w-fit rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-200 sm:mt-0">Apply through your dashboard</span>
+        {/* New distributor portal announcement */}
+        <section className="mx-auto mt-5 max-w-7xl px-4 sm:px-6 lg:px-8" aria-label="New artist distribution portal">
+          <div className="relative overflow-hidden rounded-3xl border border-red-500/40 bg-gradient-to-br from-red-950 via-neutral-950 to-neutral-900 px-6 py-8 sm:px-10 sm:py-10 shadow-2xl shadow-red-950/30">
+            <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-red-600/20 blur-3xl" />
+            <div className="relative flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+              <div className="max-w-2xl">
+                <p className="text-[10px] font-black uppercase tracking-[.28em] text-red-300">Important platform update</p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">Our new Artist Distribution Portal is now live.</h2>
+                <p className="mt-3 text-sm leading-relaxed text-neutral-200">All new music distribution submissions and artist account activity must now take place on our new platform. Your existing catalogue remains with Mid-Ama Promo and will not be removed or affected by this change.</p>
+              </div>
+              <a href="https://user.midamapromo.co.za/" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center justify-center gap-3 rounded-xl bg-red-600 px-7 py-4 text-sm font-extrabold text-white shadow-lg shadow-red-950/40 transition-all hover:-translate-y-0.5 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 focus:ring-offset-neutral-950">
+                Open New Artist Portal <span aria-hidden="true">→</span>
+              </a>
+            </div>
           </div>
-        </div>
+        </section>
 
         {/* Hero Section */}
         <Hero
           onOpenSignIn={() => openAuth('signin')}
-          onOpenRegister={() => openAuth('register')}
-          onOpenGetStarted={() => {
-            if (user) {
-              setCurrentView(user.role === 'admin' ? 'admin' : 'client');
-              setIsUploadOpen(true);
-            } else {
-              openAuth('signin');
-            }
-          }}
           onOpenContact={() => {
             const el = document.getElementById('contact');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -298,19 +269,10 @@ function MainContent() {
         <ReleasesShowcase />
 
         {/* How It Works Section */}
-        <HowItWorks
-          onOpenGetStarted={() => {
-            if (user) {
-              setCurrentView(user.role === 'admin' ? 'admin' : 'client');
-              setIsUploadOpen(true);
-            } else {
-              openAuth('signin');
-            }
-          }}
-        />
+        <HowItWorks />
 
         {/* Public plan comparison */}
-        <PricingPlans onChoosePlan={() => openAuth('register')} />
+        <PricingPlans onChoosePlan={() => window.open('https://user.midamapromo.co.za/', '_blank', 'noopener,noreferrer')} />
 
         {/* Technical Requirements Section */}
         <Requirements />
@@ -331,15 +293,6 @@ function MainContent() {
       {/* Professional Footer */}
       <Footer
         onOpenSignIn={() => openAuth('signin')}
-        onOpenRegister={() => openAuth('register')}
-        onOpenGetStarted={() => {
-          if (user) {
-            setCurrentView(user.role === 'admin' ? 'admin' : 'client');
-            setIsUploadOpen(true);
-          } else {
-            openAuth('signin');
-          }
-        }}
         onOpenContact={() => {
           const el = document.getElementById('contact');
           if (el) el.scrollIntoView({ behavior: 'smooth' });

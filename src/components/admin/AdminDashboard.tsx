@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { VevoApplications } from '../common/VevoApplications';
 import { VideoSubmissions } from '../common/VideoSubmissions';
 import {
   Shield,
@@ -495,7 +494,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 pb-20">
-      <VevoApplications admin />
       <VideoSubmissions admin />
       
       {/* Top Admin Header Bar */}
@@ -1408,7 +1406,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
-                      const msg = `Hi ${regSuccessResult.client.name}! Your Mid-Ama Promo music distribution account is registered. Visit https://midamapromo.com, click Client Portal, enter your email (${regSuccessResult.client.email}), and click "Send Code" to receive your one-time login code.`;
+                      const msg = `Hi ${regSuccessResult.client.name}! Your Mid-Ama Promo music distribution account is registered. Visit https://user.midamapromo.co.za/ and sign in using your registered email (${regSuccessResult.client.email}).`;
                       navigator.clipboard.writeText(msg);
                       setCopiedInstructions(true);
                       setTimeout(() => setCopiedInstructions(false), 2500);
